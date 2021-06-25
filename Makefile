@@ -45,6 +45,10 @@ $(BINARY):
 docker:
 	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:latest .
 
+.PHONY: docker-debug
+docker-debug:
+	$(DOCKER_BUILD) -f Dockerfile.debug -t $(REGISTRY)/oauth2-proxy:debug .
+
 .PHONY: docker-all
 docker-all: docker
 	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:latest-amd64 .

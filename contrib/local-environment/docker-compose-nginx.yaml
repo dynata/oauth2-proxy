@@ -39,5 +39,7 @@ services:
     networks:
       oauth2-proxy: {}
       httpbin: {}
+    depends_on:
+      - oauth2-proxy
 networks:
   oauth2-proxy: {}
