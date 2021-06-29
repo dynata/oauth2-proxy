@@ -1,14 +1,14 @@
 FROM golang:1.16-buster AS builder
 
-# Build Delve
-RUN go get github.com/go-delve/delve/cmd/dlv
-
 # Copy sources
 WORKDIR $GOPATH/src/github.com/oauth2-proxy/oauth2-proxy
 
 # Fetch dependencies
 COPY go.mod go.sum ./
 RUN GO111MODULE=on go mod download
+
+# Build Delve
+RUN go get github.com/go-delve/delve/cmd/dlv
 
 # Now pull in our code
 COPY . .
