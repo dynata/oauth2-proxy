@@ -30,6 +30,14 @@ keycloak-up:
 keycloak-%:
 	docker-compose -f docker-compose-keycloak.yaml $*
 
+.PHONY: keycloak-nginx-up
+keycloak-nginx-up:
+	docker-compose -f docker-compose-nginx-keycloak.yaml up -d
+
+.PHONY: keycloak-nginx-%
+keycloak-nginx-%:
+	docker-compose -f docker-compose-nginx-keycloak.yaml $*
+
 .PHONY: kubernetes-up
 kubernetes-up:
 	make -C kubernetes create-cluster
