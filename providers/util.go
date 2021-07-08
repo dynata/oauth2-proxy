@@ -37,18 +37,35 @@ func makeOIDCHeader(accessToken string) http.Header {
 
 func makeLoginURL(p *ProviderData, redirectURI, state string, extraParams url.Values) url.URL {
 	a := *p.LoginURL
+
+	clientId := p.ClientID
+	acrValues := p.AcrValues
+	prompt := p.Prompt
+	approvalPrompt := p.ApprovalPrompt
+	scope := p.Scope
+
+	dynamicClient := p.DynamicClientConfig["dynamic_client"]
+	if len(dynamicClient) > 3 {
+		clientId = dynamicClient[0]
+		if dynamicClient[2] != "" { //kc_idp_hint
+			extraParams.Add("kc_idp_hint", dynamicClient[2])
+		}
+		scope = dynamicClient[4]
+		// redirectURI = dynamicClient[5] //All client must redirect to same URL defined in config
+	}
+
 	params, _ := url.ParseQuery(a.RawQuery)
 	params.Set("redirect_uri", redirectURI)
-	if p.AcrValues != "" {
-		params.Add("acr_values", p.AcrValues)
+	if acrValues != "" {
+		params.Add("acr_values", acrValues)
 	}
-	if p.Prompt != "" {
-		params.Set("prompt", p.Prompt)
+	if prompt != "" {
+		params.Set("prompt", prompt)
 	} else { // Legacy variant of the prompt param:
-		params.Set("approval_prompt", p.ApprovalPrompt)
+		params.Set("approval_prompt", approvalPrompt)
 	}
-	params.Add("scope", p.Scope)
-	params.Set("client_id", p.ClientID)
+	params.Add("scope", scope)
+	params.Set("client_id", clientId)
 	params.Set("response_type", "code")
 	params.Add("state", state)
 	for n, p := range extraParams {

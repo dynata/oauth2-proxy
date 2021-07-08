@@ -162,11 +162,13 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		return nil, err
 	}
 
+	provider := opts.GetProvider()
+
 	preAuthChain, err := buildPreAuthChain(opts)
 	if err != nil {
 		return nil, fmt.Errorf("could not build pre-auth chain: %v", err)
 	}
-	sessionChain := buildSessionChain(opts, sessionStore, basicAuthValidator)
+	sessionChain := buildSessionChain(opts, sessionStore, basicAuthValidator, provider)
 	headersChain, err := buildHeadersChain(opts)
 	if err != nil {
 		return nil, fmt.Errorf("could not build headers chain: %v", err)
@@ -185,7 +187,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		UserInfoPath:      fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
 
 		ProxyPrefix:         opts.ProxyPrefix,
-		provider:            opts.GetProvider(),
+		provider:            provider,
 		sessionStore:        sessionStore,
 		serveMux:            upstreamProxy,
 		redirectURL:         redirectURL,
@@ -299,7 +301,8 @@ func buildPreAuthChain(opts *options.Options) (alice.Chain, error) {
 	return chain, nil
 }
 
-func buildSessionChain(opts *options.Options, sessionStore sessionsapi.SessionStore, validator basic.Validator) alice.Chain {
+func buildSessionChain(opts *options.Options, sessionStore sessionsapi.SessionStore,
+	validator basic.Validator, provider providers.Provider) alice.Chain {
 	chain := alice.New()
 
 	if opts.SkipJwtBearerTokens {
@@ -503,6 +506,10 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.AuthOnly(rw, req)
 	case path == p.UserInfoPath:
 		p.UserInfo(rw, req)
+	case path == p.provider.Data().LoginURL.Path: // Authorization Endpoint
+		p.ProxyLoginRequest(rw, req)
+	case path == p.provider.Data().RedeemURL.Path: // Token Endpoint
+		p.ProxyRefreshTokenRequest(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -567,6 +574,135 @@ func (p *OAuthProxy) isTrustedIP(req *http.Request) bool {
 	}
 
 	return p.trustedIPs.Has(remoteAddr)
+}
+
+// Mimicks Login API
+func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request) {
+	// prepareNoCache(rw)
+
+	// rw.Header().Set("Content-Type", "application/json")
+
+	if req.Method == http.MethodGet {
+		if err := req.ParseForm(); err != nil {
+			logger.Errorf("Error parsing form data: %v", err)
+			return
+		}
+
+		var clientId string
+		var responseType string
+		var scope string
+		var redirectUri string
+		var state string
+		var nonce string
+		var kcIdpHint string
+
+		for key := range req.URL.Query() {
+			value := req.Form.Get(key)
+			if key == "client_id" {
+				clientId = value
+				continue
+			}
+			if key == "response_type" {
+				responseType = value
+				continue
+			}
+			if key == "scope" {
+				scope = value
+				continue
+			}
+			if key == "redirect_uri" {
+				redirectUri = value
+				continue
+			}
+			if key == "state" {
+				state = value
+				continue
+			}
+			if key == "nonce" {
+				nonce = value
+				continue
+			}
+			if key == "kc_idp_hint" {
+				kcIdpHint = value
+				continue
+			}
+		}
+
+		if clientDataArray, set := p.provider.Data().DynamicClientConfig["dynamic_client"]; set {
+			if len(clientDataArray) >= 1 && clientId == clientDataArray[0] && responseType == "code" {
+				if kcIdpHint != "" {
+					clientDataArray[2] = kcIdpHint
+				}
+				clientDataArray = append(clientDataArray, responseType, scope, redirectUri, state, nonce)
+				p.provider.Data().DynamicClientConfig["dynamic_client"] = clientDataArray
+			}
+		}
+
+		p.OAuthStart(rw, req)
+	}
+	rw.WriteHeader(http.StatusOK)
+}
+
+// Mimicks Refresh Token API
+func (p *OAuthProxy) ProxyRefreshTokenRequest(rw http.ResponseWriter, req *http.Request) {
+	prepareNoCache(rw)
+
+	rw.Header().Set("Content-Type", "application/json")
+
+	if req.Method == http.MethodPost {
+		if err := req.ParseForm(); err != nil {
+			logger.Errorf("Error parsing form data: %v", err)
+			return
+		}
+
+		var clientId string
+		var grantType string
+		var refreshToken string
+
+		for key := range req.PostForm {
+			value := req.PostFormValue(key)
+			if key == "client_id" {
+				clientId = value
+				continue
+			}
+			if key == "grant_type" {
+				grantType = value
+				continue
+			}
+			if key == "refresh_token" {
+				refreshToken = value
+				continue
+			}
+		}
+
+		if grantType != "refresh_token" || clientId == "" || refreshToken == "" {
+			rw.WriteHeader(http.StatusBadRequest)
+		} else {
+			session, err0 := p.LoadCookiedSession(req)
+			if err0 != nil {
+				logger.Printf("Error loading cookied session: %v", err0)
+				rw.WriteHeader(http.StatusNotAcceptable)
+				return
+			}
+
+			tokenResponse := struct {
+				AccessToken string `json:"accessToken"`
+			}{
+				AccessToken: session.AccessToken,
+			}
+
+			err1 := json.NewEncoder(rw).Encode(tokenResponse)
+			if err1 != nil {
+				logger.Printf("Error encoding user info: %v", err1)
+				rw.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			rw.WriteHeader(http.StatusOK)
+		}
+	} else {
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 // SignInPage writes the sing in template to the response
@@ -987,6 +1123,10 @@ func (p *OAuthProxy) hasProxyPrefix(path string) bool {
 	return strings.HasPrefix(path, fmt.Sprintf("%s/", p.ProxyPrefix))
 }
 
+func (p *OAuthProxy) hasMockPrefix(path string) bool {
+	return strings.HasPrefix(path, fmt.Sprintf("%s/", "/auth")) //TODO: Make it available in Options
+}
+
 func (p *OAuthProxy) validateRedirect(redirect string, errorFormat string) string {
 	if p.IsValidRedirect(redirect) {
 		return redirect
@@ -1027,6 +1167,9 @@ func (p *OAuthProxy) getXForwardedHeadersRedirect(req *http.Request) string {
 	if p.hasProxyPrefix(uri) {
 		uri = "/"
 	}
+	if p.hasMockPrefix(uri) {
+		uri = "/"
+	}
 
 	redirect := fmt.Sprintf(
 		"%s://%s%s",
@@ -1042,6 +1185,7 @@ func (p *OAuthProxy) getXForwardedHeadersRedirect(req *http.Request) string {
 // getURIRedirect handles these getAppRedirect strategies:
 // - `X-Forwarded-Uri` direct URI path (when ReverseProxy mode is enabled)
 // - `req.URL.RequestURI` if not under the ProxyPath (i.e. /oauth2/*)
+// - `req.URL.RequestURI` if not under the MockPath (i.e. /auth/*)
 // - `/`
 func (p *OAuthProxy) getURIRedirect(req *http.Request) string {
 	redirect := p.validateRedirect(
@@ -1053,6 +1197,10 @@ func (p *OAuthProxy) getURIRedirect(req *http.Request) string {
 	}
 
 	if p.hasProxyPrefix(redirect) {
+		return "/"
+	}
+
+	if p.hasMockPrefix(redirect) {
 		return "/"
 	}
 	return redirect

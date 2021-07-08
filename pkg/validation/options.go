@@ -226,6 +226,9 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 
 	p.SetAllowedGroups(o.Providers[0].AllowedGroups)
 
+	p.DynamicClientConfig = make(map[string][]string)
+	p.DynamicClientConfig["dynamic_client"] = []string{"oauth2-proxy", "72341b6d-7065-4518-a0e4-50ee15025608", "google"} //0:client_id,1:client_secret,2:kc_idp_hint
+
 	provider := providers.New(o.Providers[0].Type, p)
 	if provider == nil {
 		msgs = append(msgs, fmt.Sprintf("invalid setting: provider '%s' is not available", o.Providers[0].Type))

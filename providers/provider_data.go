@@ -48,6 +48,8 @@ type ProviderData struct {
 	// Universal Group authorization data structure
 	// any provider can set to consume
 	AllowedGroups map[string]struct{}
+
+	DynamicClientConfig map[string][]string
 }
 
 // Data returns the ProviderData
