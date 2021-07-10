@@ -51,7 +51,9 @@ func (p *OIDCProvider) Redeem(ctx context.Context, redirectURL, code string) (*s
 
 	clientId := p.ClientID
 
-	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set {
+	clientIdFromCtx := ctx.Value(string("clientId"))
+
+	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
 		clientId = values[0]
 		clientSecret = values[1]
 	}
@@ -175,7 +177,10 @@ func (p *OIDCProvider) redeemRefreshToken(ctx context.Context, s *sessions.Sessi
 	}
 
 	clientId := p.ClientID
-	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set {
+
+	clientIdFromCtx := ctx.Value(string("clientId"))
+
+	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
 		clientId = values[0]
 		clientSecret = values[1]
 	}

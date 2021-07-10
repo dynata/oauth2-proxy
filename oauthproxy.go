@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -848,10 +849,17 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	clientId, err := p.getClientID(req)
+	if err != nil {
+		logger.Errorf("Error obtaining client ID: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	callbackRedirect := p.getOAuthRedirectURI(req)
 	loginURL := p.provider.GetLoginURL(
 		callbackRedirect,
-		encodeState(csrf.HashOAuthState(), appRedirect),
+		encodeState(csrf.HashOAuthState(), appRedirect, clientId),
 		csrf.HashOIDCNonce(),
 	)
 
@@ -885,7 +893,9 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	session, err := p.redeemCode(req)
+	nonce, appRedirect, clientId, decodeErr := decodeState(req)
+
+	session, err := p.redeemCode(req, clientId)
 	if err != nil {
 		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
@@ -908,8 +918,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 
 	csrf.ClearCookie(rw, req)
 
-	nonce, appRedirect, err := decodeState(req)
-	if err != nil {
+	if decodeErr != nil {
 		logger.Errorf("Error while parsing OAuth2 state: %v", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 		return
@@ -948,14 +957,24 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *OAuthProxy) redeemCode(req *http.Request) (*sessionsapi.SessionState, error) {
+func (p *OAuthProxy) getClientID(req *http.Request) (string, error) {
+	clientID := req.Form.Get("client_id")
+	if clientID == "" {
+		return "", providers.ErrMissingCode
+	}
+	return clientID, nil
+}
+
+func (p *OAuthProxy) redeemCode(req *http.Request, clientId string) (*sessionsapi.SessionState, error) {
 	code := req.Form.Get("code")
 	if code == "" {
 		return nil, providers.ErrMissingCode
 	}
 
 	redirectURI := p.getOAuthRedirectURI(req)
-	s, err := p.provider.Redeem(req.Context(), redirectURI, code)
+	ctx := req.Context()
+	ctxNew := context.WithValue(ctx, string("clientId"), clientId)
+	s, err := p.provider.Redeem(ctxNew, redirectURI, code)
 	if err != nil {
 		return nil, err
 	}
@@ -1328,18 +1347,22 @@ func extractAllowedGroups(req *http.Request) map[string]struct{} {
 
 // encodedState builds the OAuth state param out of our nonce and
 // original application redirect
-func encodeState(nonce string, redirect string) string {
-	return fmt.Sprintf("%v:%v", nonce, redirect)
+func encodeState(nonce string, redirect string, clientId string) string {
+	plain := fmt.Sprintf("%v:%v:%v", nonce, redirect, clientId)
+	base64Plain := b64.URLEncoding.EncodeToString([]byte(plain))
+	return base64Plain
 }
 
 // decodeState splits the reflected OAuth state response back into
 // the nonce and original application redirect
-func decodeState(req *http.Request) (string, string, error) {
-	state := strings.SplitN(req.Form.Get("state"), ":", 2)
-	if len(state) != 2 {
-		return "", "", errors.New("invalid length")
+func decodeState(req *http.Request) (string, string, string, error) {
+	base64State := req.Form.Get("state")
+	sDec, _ := b64.URLEncoding.DecodeString(base64State)
+	state := strings.SplitN(string(sDec), ":", 3)
+	if len(state) != 3 {
+		return "", "", "", errors.New("invalid length")
 	}
-	return state[0], state[1], nil
+	return state[0], state[1], state[2], nil
 }
 
 // addHeadersForProxying adds the appropriate headers the request / response for proxying
