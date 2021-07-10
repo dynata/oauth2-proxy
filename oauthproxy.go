@@ -1349,7 +1349,7 @@ func extractAllowedGroups(req *http.Request) map[string]struct{} {
 // original application redirect
 func encodeState(nonce string, redirect string, clientId string) string {
 	plain := fmt.Sprintf("%v:%v:%v", nonce, redirect, clientId)
-	base64Plain := b64.URLEncoding.EncodeToString([]byte(plain))
+	base64Plain := b64.RawURLEncoding.EncodeToString([]byte(plain))
 	return base64Plain
 }
 
@@ -1357,7 +1357,7 @@ func encodeState(nonce string, redirect string, clientId string) string {
 // the nonce and original application redirect
 func decodeState(req *http.Request) (string, string, string, error) {
 	base64State := req.Form.Get("state")
-	sDec, _ := b64.URLEncoding.DecodeString(base64State)
+	sDec, _ := b64.RawURLEncoding.DecodeString(base64State)
 	state := strings.SplitN(string(sDec), ":", 3)
 	if len(state) != 3 {
 		return "", "", "", errors.New("invalid length")
