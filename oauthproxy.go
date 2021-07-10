@@ -792,17 +792,17 @@ func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 		Email             string   `json:"email"`
 		Groups            []string `json:"groups,omitempty"`
 		PreferredUsername string   `json:"preferredUsername,omitempty"`
-		AccessToken       string   `json:"accessToken"`
-		RefreshToken      string   `json:"refreshToken"`
-		IDToken           string   `json:"idToken"`
+		// AccessToken       string   `json:"accessToken"`
+		// RefreshToken      string   `json:"refreshToken"`
+		// IDToken           string   `json:"idToken"`
 	}{
 		User:              session.User,
 		Email:             session.Email,
 		Groups:            session.Groups,
 		PreferredUsername: session.PreferredUsername,
-		AccessToken:       session.AccessToken,
-		RefreshToken:      session.RefreshToken,
-		IDToken:           session.IDToken,
+		// AccessToken:       session.AccessToken,
+		// RefreshToken:      session.RefreshToken,
+		// IDToken:           session.IDToken,
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
