@@ -145,7 +145,7 @@ func (s *storedSessionLoader) refreshSessionWithProvider(rw http.ResponseWriter,
 	}
 
 	// Because the session was refreshed, make sure to save it
-	err = s.store.Save(rw, req, session)
+	_, err = s.store.Save(rw, req, session)
 	if err != nil {
 		logger.PrintAuthf(session.Email, req, logger.AuthError, "error saving session: %v", err)
 		return false, fmt.Errorf("error saving session: %v", err)

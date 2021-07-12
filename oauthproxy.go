@@ -431,7 +431,7 @@ func (p *OAuthProxy) LoadCookiedSession(req *http.Request) (*sessionsapi.Session
 }
 
 // SaveSession creates a new session cookie value and sets this on the response
-func (p *OAuthProxy) SaveSession(rw http.ResponseWriter, req *http.Request, s *sessionsapi.SessionState) error {
+func (p *OAuthProxy) SaveSession(rw http.ResponseWriter, req *http.Request, s *sessionsapi.SessionState) (string, error) {
 	return p.sessionStore.Save(rw, req, s)
 }
 
@@ -636,6 +636,12 @@ func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request
 				}
 				clientDataArray = append(clientDataArray, responseType, scope, redirectUri, state, nonce)
 				p.provider.Data().DynamicClientConfig["dynamic_client"] = clientDataArray
+				if redirectUri != "" {
+					// q := req.URL.Query()
+					// q.Add("rd", redirectUri)
+					// req.URL.RawQuery = q.Encode()
+					req.Header.Add("X-Auth-Request-Redirect", redirectUri)
+				}
 			}
 		}
 
@@ -762,7 +768,7 @@ func (p *OAuthProxy) SignIn(rw http.ResponseWriter, req *http.Request) {
 	user, ok := p.ManualSignIn(req)
 	if ok {
 		session := &sessionsapi.SessionState{User: user}
-		err = p.SaveSession(rw, req, session)
+		_, err := p.SaveSession(rw, req, session)
 		if err != nil {
 			logger.Printf("Error saving session: %v", err)
 			p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
@@ -944,11 +950,22 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 	if p.Validator(session.Email) && authorized {
 		logger.PrintAuthf(session.Email, req, logger.AuthSuccess, "Authenticated via OAuth2: %s", session)
-		err := p.SaveSession(rw, req, session)
+		ticketID, err := p.SaveSession(rw, req, session)
 		if err != nil {
 			logger.Errorf("Error saving session state for %s: %v", remoteAddr, err)
 			p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if ticketID != "" {
+			req, err := http.NewRequest("GET", appRedirect, nil)
+			if err != nil {
+				logger.Errorf("Error appending code to app redirect URL: %v", err)
+				p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+			}
+			q := req.URL.Query()
+			q.Add("code", ticketID)
+			req.URL.RawQuery = q.Encode()
+			appRedirect = req.URL.String()
 		}
 		http.Redirect(rw, req, appRedirect, http.StatusFound)
 	} else {
@@ -1348,7 +1365,8 @@ func extractAllowedGroups(req *http.Request) map[string]struct{} {
 // encodedState builds the OAuth state param out of our nonce and
 // original application redirect
 func encodeState(nonce string, redirect string, clientId string) string {
-	plain := fmt.Sprintf("%v:%v:%v", nonce, redirect, clientId)
+	endodedRedirectURL := b64.RawURLEncoding.EncodeToString([]byte(redirect))
+	plain := fmt.Sprintf("%v:%v:%v", nonce, endodedRedirectURL, clientId)
 	base64Plain := b64.RawURLEncoding.EncodeToString([]byte(plain))
 	return base64Plain
 }
@@ -1362,7 +1380,13 @@ func decodeState(req *http.Request) (string, string, string, error) {
 	if len(state) != 3 {
 		return "", "", "", errors.New("invalid length")
 	}
-	return state[0], state[1], state[2], nil
+	nonce := state[0]
+	decodedRedirectURL, err := b64.RawURLEncoding.DecodeString(state[1])
+	if err != nil {
+		return "", "", "", err
+	}
+	clientId := state[2]
+	return nonce, string(decodedRedirectURL), clientId, nil
 }
 
 // addHeadersForProxying adds the appropriate headers the request / response for proxying

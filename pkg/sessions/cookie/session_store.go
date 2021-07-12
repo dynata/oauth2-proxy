@@ -1,6 +1,7 @@
 package cookie
 
 import (
+	b64 "encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -34,16 +35,17 @@ type SessionStore struct {
 
 // Save takes a sessions.SessionState and stores the information from it
 // within Cookies set on the HTTP response writer
-func (s *SessionStore) Save(rw http.ResponseWriter, req *http.Request, ss *sessions.SessionState) error {
+func (s *SessionStore) Save(rw http.ResponseWriter, req *http.Request, ss *sessions.SessionState) (string, error) {
 	if ss.CreatedAt == nil || ss.CreatedAt.IsZero() {
 		now := time.Now()
 		ss.CreatedAt = &now
 	}
 	value, err := s.cookieForSession(ss)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return s.setSessionCookie(rw, req, value, *ss.CreatedAt)
+	return b64.RawURLEncoding.EncodeToString([]byte(ss.IDToken)),
+		s.setSessionCookie(rw, req, value, *ss.CreatedAt)
 }
 
 // Load reads sessions.SessionState information from Cookies within the

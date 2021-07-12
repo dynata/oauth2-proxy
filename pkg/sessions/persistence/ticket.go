@@ -120,7 +120,24 @@ func (t *ticket) saveSession(s *sessions.SessionState, saver saveFunc) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode the session state with the ticket: %v", err)
 	}
-	return saver(t.id, ciphertext, t.options.Expire)
+
+	if s.RefreshToken != "" {
+		encryptedValue, err := encryption.
+			SignedValue(t.options.Secret, t.options.Name, []byte(s.RefreshToken), *s.CreatedAt)
+		// encryptedValue, err := c.Encrypt([]byte(s.RefreshToken))
+		if err != nil {
+			return fmt.Errorf("failed to encrypt refresh token for storing as a key: %v", err)
+		}
+		err = saver(string(encryptedValue), []byte(t.id), t.options.Expire)
+		if err != nil {
+			return err
+		}
+	}
+	err = saver(t.id, ciphertext, t.options.Expire)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // loadSession loads a session from the disk store via the passed loadFunc

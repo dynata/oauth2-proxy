@@ -208,7 +208,7 @@ func PersistentSessionStoreInterfaceTests(in *testInput) {
 		BeforeEach(func() {
 			req := httptest.NewRequest("GET", "http://example.com/", nil)
 			saveResp := httptest.NewRecorder()
-			err := in.ss().Save(saveResp, req, in.session)
+			_, err := in.ss().Save(saveResp, req, in.session)
 			Expect(err).ToNot(HaveOccurred())
 
 			resultCookies = saveResp.Result().Cookies()
@@ -250,7 +250,7 @@ func PersistentSessionStoreInterfaceTests(in *testInput) {
 		BeforeEach(func() {
 			req := httptest.NewRequest("GET", "http://example.com/", nil)
 			resp := httptest.NewRecorder()
-			err := in.ss().Save(resp, req, in.session)
+			_, err := in.ss().Save(resp, req, in.session)
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, cookie := range resp.Result().Cookies() {
@@ -291,7 +291,7 @@ func PersistentSessionStoreInterfaceTests(in *testInput) {
 		var loadedSession *sessionsapi.SessionState
 		BeforeEach(func() {
 			resp := httptest.NewRecorder()
-			err := in.ss().Save(resp, in.request, in.session)
+			_, err := in.ss().Save(resp, in.request, in.session)
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, cookie := range resp.Result().Cookies() {
@@ -364,7 +364,7 @@ func SessionStoreInterfaceTests(in *testInput) {
 	Context("when Save is called", func() {
 		Context("with no existing session", func() {
 			BeforeEach(func() {
-				err := in.ss().Save(in.response, in.request, in.session)
+				_, err := in.ss().Save(in.response, in.request, in.session)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -388,7 +388,7 @@ func SessionStoreInterfaceTests(in *testInput) {
 				cookie := cookiesapi.MakeCookieFromOptions(in.request, in.cookieOpts.Name, value, in.cookieOpts, in.cookieOpts.Expire, time.Now())
 				in.request.AddCookie(cookie)
 
-				err = in.ss().Save(in.response, in.request, in.session)
+				_, err = in.ss().Save(in.response, in.request, in.session)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -409,7 +409,7 @@ func SessionStoreInterfaceTests(in *testInput) {
 				By("saving a session")
 				req := httptest.NewRequest("GET", "http://example.com/", nil)
 				saveResp := httptest.NewRecorder()
-				err = in.ss().Save(saveResp, req, in.session)
+				_, err = in.ss().Save(saveResp, req, in.session)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("and clearing the session")
@@ -421,7 +421,7 @@ func SessionStoreInterfaceTests(in *testInput) {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("then saving a request with the cleared session")
-				err = in.ss().Save(in.response, in.request, in.session)
+				_, err = in.ss().Save(in.response, in.request, in.session)
 			})
 
 			It("no error should occur", func() {
@@ -434,7 +434,7 @@ func SessionStoreInterfaceTests(in *testInput) {
 		BeforeEach(func() {
 			req := httptest.NewRequest("GET", "http://example.com/", nil)
 			saveResp := httptest.NewRecorder()
-			err := in.ss().Save(saveResp, req, in.session)
+			_, err := in.ss().Save(saveResp, req, in.session)
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, c := range saveResp.Result().Cookies() {
@@ -455,7 +455,7 @@ func SessionStoreInterfaceTests(in *testInput) {
 		BeforeEach(func() {
 			req := httptest.NewRequest("GET", "http://example.com/", nil)
 			resp := httptest.NewRecorder()
-			err := in.ss().Save(resp, req, in.session)
+			_, err := in.ss().Save(resp, req, in.session)
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, cookie := range resp.Result().Cookies() {

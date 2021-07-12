@@ -1,12 +1,14 @@
 package persistence
 
 import (
+	b64 "encoding/base64"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/encryption"
 )
 
 // Manager wraps a Store and handles the implementation details of the
@@ -28,7 +30,7 @@ func NewManager(store Store, cookieOpts *options.Cookie) *Manager {
 // Save saves a session in a persistent Store. Save will generate (or reuse an
 // existing) ticket which manages unique per session encryption & retrieval
 // from the persistent data store.
-func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.SessionState) error {
+func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.SessionState) (string, error) {
 	if s.CreatedAt == nil || s.CreatedAt.IsZero() {
 		now := time.Now()
 		s.CreatedAt = &now
@@ -38,7 +40,7 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 	if err != nil {
 		tckt, err = newTicket(m.Options)
 		if err != nil {
-			return fmt.Errorf("error creating a session ticket: %v", err)
+			return "", fmt.Errorf("error creating a session ticket: %v", err)
 		}
 	}
 
@@ -46,10 +48,15 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 		return m.Store.Save(req.Context(), key, val, exp)
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return tckt.setCookie(rw, req, s)
+	signedTicketId, err := encryption.SignedValue(tckt.options.Secret, tckt.options.Name, []byte(tckt.id), *s.CreatedAt)
+	if err != nil {
+		return "", err
+	}
+
+	return b64.RawURLEncoding.EncodeToString([]byte(signedTicketId)), tckt.setCookie(rw, req, s)
 }
 
 // Load reads sessions.SessionState information from a session store. It will

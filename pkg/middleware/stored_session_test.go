@@ -380,12 +380,12 @@ var _ = Describe("Stored Session Suite", func() {
 
 				s := &storedSessionLoader{
 					store: &fakeSessionStore{
-						SaveFunc: func(_ http.ResponseWriter, _ *http.Request, ss *sessionsapi.SessionState) error {
+						SaveFunc: func(_ http.ResponseWriter, _ *http.Request, ss *sessionsapi.SessionState) (string, error) {
 							saved = true
 							if ss.AccessToken == "NoSave" {
-								return errors.New("unable to save session")
+								return "", errors.New("unable to save session")
 							}
-							return nil
+							return "", nil
 						},
 					},
 					refreshSessionWithProviderIfNeeded: func(_ context.Context, ss *sessionsapi.SessionState) (bool, error) {
@@ -498,16 +498,16 @@ var _ = Describe("Stored Session Suite", func() {
 })
 
 type fakeSessionStore struct {
-	SaveFunc  func(http.ResponseWriter, *http.Request, *sessionsapi.SessionState) error
+	SaveFunc  func(http.ResponseWriter, *http.Request, *sessionsapi.SessionState) (string, error)
 	LoadFunc  func(req *http.Request) (*sessionsapi.SessionState, error)
 	ClearFunc func(rw http.ResponseWriter, req *http.Request) error
 }
 
-func (f *fakeSessionStore) Save(rw http.ResponseWriter, req *http.Request, s *sessionsapi.SessionState) error {
+func (f *fakeSessionStore) Save(rw http.ResponseWriter, req *http.Request, s *sessionsapi.SessionState) (string, error) {
 	if f.SaveFunc != nil {
 		return f.SaveFunc(rw, req, s)
 	}
-	return nil
+	return "", nil
 }
 func (f *fakeSessionStore) Load(req *http.Request) (*sessionsapi.SessionState, error) {
 	if f.LoadFunc != nil {
