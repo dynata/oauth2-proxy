@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests"
@@ -51,7 +52,7 @@ func (p *OIDCProvider) Redeem(ctx context.Context, redirectURL, code string) (*s
 
 	clientId := p.ClientID
 
-	clientIdFromCtx := ctx.Value(string("Context-Client-Id"))
+	clientIdFromCtx := ctx.Value(constants.ContextClientId)
 
 	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
 		clientId = values[0]
@@ -155,7 +156,7 @@ func (p *OIDCProvider) ValidateSession(ctx context.Context, s *sessions.SessionS
 // RefreshSessionIfNeeded checks if the session has expired and uses the
 // RefreshToken to fetch a new Access Token (and optional ID token) if required
 func (p *OIDCProvider) RefreshSessionIfNeeded(ctx context.Context, s *sessions.SessionState) (bool, error) {
-	skipRefreshIntervalTest := ctx.Value(string("Context-Skip-Refresh-Interval"))
+	skipRefreshIntervalTest := ctx.Value(constants.ContextSkipRefreshInterval)
 	skipRefreshIntervalTestBool, _ := skipRefreshIntervalTest.(bool)
 
 	if !skipRefreshIntervalTestBool &&
@@ -182,7 +183,7 @@ func (p *OIDCProvider) redeemRefreshToken(ctx context.Context, s *sessions.Sessi
 
 	clientId := p.ClientID
 
-	clientIdFromCtx := ctx.Value(string("Context-Client-Id"))
+	clientIdFromCtx := ctx.Value(constants.ContextClientId)
 
 	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
 		clientId = values[0]

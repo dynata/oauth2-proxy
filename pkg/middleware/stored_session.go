@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/justinas/alice"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	middlewareapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	sessionsapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
@@ -123,7 +124,7 @@ func (s *StoredSessionLoader) getValidatedSession(rw http.ResponseWriter, req *h
 	}
 
 	originalRefreshToken := session.RefreshToken
-	ctx := context.WithValue(req.Context(), string("Context-Original-RefreshToken"),
+	ctx := context.WithValue(req.Context(), constants.ContextOriginalRefreshToken,
 		originalRefreshToken)
 	req = req.Clone(ctx)
 

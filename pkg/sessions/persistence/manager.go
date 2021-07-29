@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 )
@@ -49,7 +50,7 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 		}
 	}
 
-	ticket_uuid = uuid.NewString()
+	ticket_uuid = uuid.NewString() + "." + uuid.NewString() + "." + uuid.NewString()
 
 	err = tckt.saveSession(req.Context(), s, ticket_uuid, func(key string, val []byte, exp time.Duration) error {
 		return m.Store.Save(req.Context(), key, val, exp)
@@ -106,7 +107,7 @@ func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
 
 func (m *Manager) decodeMockOIDCTokenRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
 	// first mock API processing is done with provided code to get session from
-	mockTokenPath := fmt.Sprintf("%v", req.Context().Value(string("Context-Token-Auth-Path")))
+	mockTokenPath := fmt.Sprintf("%v", req.Context().Value(constants.ContextTokenAuthPath))
 	encodedUserCode := req.FormValue("code")
 	userRefreshToken := req.FormValue("refresh_token")
 

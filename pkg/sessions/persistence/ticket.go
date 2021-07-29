@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/cookies"
@@ -151,7 +152,7 @@ func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, tick
 
 	encodedTicket := t.encodeTicket()
 
-	originalRefreshToken := ctx.Value(string("Context-Original-RefreshToken"))
+	originalRefreshToken := ctx.Value(constants.ContextOriginalRefreshToken)
 	originalRefreshTokenStr, _ := originalRefreshToken.(string)
 
 	if originalRefreshTokenStr == "" { //request is not comming from refresh filter

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/justinas/alice"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	ipapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/ip"
 	middlewareapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
@@ -509,7 +510,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		prepareNoCache(rw)
 	}
 
-	ctx := context.WithValue(req.Context(), string("Context-Token-Auth-Path"),
+	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath,
 		p.provider.Data().RedeemURL.Path)
 
 	req = req.Clone(ctx)
@@ -747,7 +748,7 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 			if clientId == "" || refreshToken == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
-				ctx := context.WithValue(req.Context(), string("Context-Skip-Refresh-Interval"),
+				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval,
 					true)
 				req = req.Clone(ctx)
 				session, err := p.LoadCookiedSession(req)
@@ -759,7 +760,7 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 				if session != nil {
 					originalRefreshToken := session.RefreshToken
 
-					ctx := context.WithValue(req.Context(), string("Context-Original-RefreshToken"),
+					ctx := context.WithValue(req.Context(), constants.ContextOriginalRefreshToken,
 						originalRefreshToken)
 					req = req.Clone(ctx)
 
@@ -1074,7 +1075,7 @@ func (p *OAuthProxy) redeemCode(req *http.Request, clientId string) (*sessionsap
 
 	redirectURI := p.getOAuthRedirectURI(req)
 	ctx := req.Context()
-	ctxNew := context.WithValue(ctx, string("Context-Client-Id"), clientId)
+	ctxNew := context.WithValue(ctx, constants.ContextClientId, clientId)
 	s, err := p.provider.Redeem(ctxNew, redirectURI, code)
 	if err != nil {
 		return nil, err
