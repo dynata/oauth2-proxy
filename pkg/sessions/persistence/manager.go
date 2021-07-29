@@ -33,8 +33,6 @@ func NewManager(store Store, cookieOpts *options.Cookie) *Manager {
 // existing) ticket which manages unique per session encryption & retrieval
 // from the persistent data store.
 func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.SessionState) (string, error) {
-	var ticket_uuid string
-
 	if s.CreatedAt == nil || s.CreatedAt.IsZero() {
 		now := time.Now()
 		s.CreatedAt = &now
@@ -50,7 +48,7 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 		}
 	}
 
-	ticket_uuid = uuid.NewString() + "." + uuid.NewString() + "." + uuid.NewString()
+	ticket_uuid := uuid.NewString() + "." + uuid.NewString() + "." + uuid.NewString()
 
 	err = tckt.saveSession(req.Context(), s, ticket_uuid, func(key string, val []byte, exp time.Duration) error {
 		return m.Store.Save(req.Context(), key, val, exp)

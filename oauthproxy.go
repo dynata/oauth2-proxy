@@ -95,7 +95,7 @@ type OAuthProxy struct {
 	server        proxyhttp.Server
 }
 
-type AuthServerTokenResponse struct {
+type authServerTokenResponse struct {
 	TokenType             string  `json:"token_type"`
 	IDToken               string  `json:"id_token"`
 	RefreshToken          string  `json:"refresh_token"`
@@ -725,7 +725,7 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 					rw.WriteHeader(http.StatusNotFound)
 					return
 				}
-				tokenResponse := &AuthServerTokenResponse{
+				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
 					IDToken:               session.IDToken,
 					RefreshToken:          session.RefreshToken,
@@ -758,7 +758,7 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 					return
 				}
 				if session != nil {
-					originalRefreshToken := session.RefreshToken
+					originalRefreshToken := refreshToken
 
 					ctx := context.WithValue(req.Context(), constants.ContextOriginalRefreshToken,
 						originalRefreshToken)
@@ -771,7 +771,7 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 						return
 					}
 				}
-				tokenResponse := &AuthServerTokenResponse{
+				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
 					IDToken:               session.IDToken,
 					RefreshToken:          session.RefreshToken,

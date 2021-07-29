@@ -181,8 +181,6 @@ func (s *StoredSessionLoader) refreshSessionIfNeeded(rw http.ResponseWriter, req
 // refreshSessionWithProvider attempts to refresh the sessinon with the provider
 // and will save the session if it was updated.
 func (s *StoredSessionLoader) refreshSessionWithProvider(rw http.ResponseWriter, req *http.Request, session *sessionsapi.SessionState) (bool, error) {
-	// originalRefreshToken := session.RefreshToken
-
 	refreshed, err := s.refreshSessionWithProviderIfNeeded(req.Context(), session)
 	if err != nil {
 		return false, fmt.Errorf("error refreshing access token: %v", err)

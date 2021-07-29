@@ -18,6 +18,7 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/cookies"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/encryption"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 )
 
 // saveFunc performs a persistent store's save functionality using
@@ -138,6 +139,26 @@ func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ti
 	return decodeTicket(string(val), cookieOpts)
 }
 
+func saveRefreshToken(encodedTicket string, refreshToken string, saver saveFunc) error {
+	encodedRefreshToken := base64.RawURLEncoding.EncodeToString([]byte(refreshToken))
+
+	if encodedRefreshToken == "" {
+		return fmt.Errorf("failed to encode refresh token for storing as a key")
+	}
+
+	refreshTokenExpiry, err := time.ParseDuration("720h") // 30 days
+	if err != nil {
+		return err
+	}
+
+	err = saver(string(encodedRefreshToken), []byte(encodedTicket), refreshTokenExpiry)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // saveSession encodes the SessionState with the ticket's secret and persists
 // it to disk via the passed saveFunc.
 func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, ticket_uuid string, saver saveFunc) error {
@@ -155,25 +176,20 @@ func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, tick
 	originalRefreshToken := ctx.Value(constants.ContextOriginalRefreshToken)
 	originalRefreshTokenStr, _ := originalRefreshToken.(string)
 
+	logger.Printf("---> " + originalRefreshTokenStr)
+
 	if originalRefreshTokenStr == "" { //request is not comming from refresh filter
-		err = saver(ticket_uuid, []byte(encodedTicket), time.Minute*60*5)
+		err = saver(ticket_uuid, []byte(encodedTicket), time.Minute)
 		if err != nil {
 			return err
 		}
+	} else {
+		saveRefreshToken(encodedTicket, originalRefreshTokenStr, saver)
 	}
 
 	if s.RefreshToken != "" {
 		if originalRefreshTokenStr == "" { //request is not comming from refresh filter
-			encodedRefreshToken := base64.RawURLEncoding.EncodeToString([]byte(s.RefreshToken))
-
-			if encodedRefreshToken == "" {
-				return fmt.Errorf("failed to encode refresh token for storing as a key: %v", err)
-			}
-
-			err = saver(string(encodedRefreshToken), []byte(encodedTicket), t.options.Expire)
-			if err != nil {
-				return err
-			}
+			saveRefreshToken(encodedTicket, s.RefreshToken, saver)
 		}
 	}
 	err = saver(t.id, ciphertext, t.options.Expire)
