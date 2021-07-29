@@ -86,11 +86,23 @@ type OAuthProxy struct {
 	realClientIPParser  ipapi.RealClientIPParser
 	trustedIPs          *ip.NetSet
 
-	sessionChain alice.Chain
-	headersChain alice.Chain
-	preAuthChain alice.Chain
-	pageWriter   pagewriter.Writer
-	server       proxyhttp.Server
+	sessionLoader *middleware.StoredSessionLoader
+	sessionChain  alice.Chain
+	headersChain  alice.Chain
+	preAuthChain  alice.Chain
+	pageWriter    pagewriter.Writer
+	server        proxyhttp.Server
+}
+
+type AuthServerTokenResponse struct {
+	TokenType             string  `json:"token_type"`
+	IDToken               string  `json:"id_token"`
+	RefreshToken          string  `json:"refresh_token"`
+	RefreshTokenExpiredOn float64 `json:"refresh_expires_in"`
+	AccessToken           string  `json:"access_token"`
+	ExpireIn              float64 `json:"expire_in"`
+	Scope                 string  `json:"scope"`
+	SessionState          string  `json:"session_state"`
 }
 
 // NewOAuthProxy creates a new instance of OAuthProxy from the options provided
@@ -169,7 +181,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	if err != nil {
 		return nil, fmt.Errorf("could not build pre-auth chain: %v", err)
 	}
-	sessionChain := buildSessionChain(opts, sessionStore, basicAuthValidator, provider)
+	sessionChain, sessionLoader := buildSessionChain(opts, sessionStore, basicAuthValidator, provider)
 	headersChain, err := buildHeadersChain(opts)
 	if err != nil {
 		return nil, fmt.Errorf("could not build headers chain: %v", err)
@@ -201,6 +213,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		trustedIPs:          trustedIPs,
 
 		basicAuthValidator: basicAuthValidator,
+		sessionLoader:      sessionLoader,
 		sessionChain:       sessionChain,
 		headersChain:       headersChain,
 		preAuthChain:       preAuthChain,
@@ -303,7 +316,7 @@ func buildPreAuthChain(opts *options.Options) (alice.Chain, error) {
 }
 
 func buildSessionChain(opts *options.Options, sessionStore sessionsapi.SessionStore,
-	validator basic.Validator, provider providers.Provider) alice.Chain {
+	validator basic.Validator, provider providers.Provider) (alice.Chain, *middleware.StoredSessionLoader) {
 	chain := alice.New()
 
 	if opts.SkipJwtBearerTokens {
@@ -323,14 +336,20 @@ func buildSessionChain(opts *options.Options, sessionStore sessionsapi.SessionSt
 		chain = chain.Append(middleware.NewBasicAuthSessionLoader(validator, opts.HtpasswdUserGroups, opts.LegacyPreferEmailToUser))
 	}
 
-	chain = chain.Append(middleware.NewStoredSessionLoader(&middleware.StoredSessionLoaderOptions{
+	sessionLoaderOpts := &middleware.StoredSessionLoaderOptions{
 		SessionStore:           sessionStore,
 		RefreshPeriod:          opts.Cookie.Refresh,
 		RefreshSessionIfNeeded: opts.GetProvider().RefreshSessionIfNeeded,
 		ValidateSessionState:   opts.GetProvider().ValidateSession,
-	}))
+	}
 
-	return chain
+	sessionLoader := middleware.GenerateSessionLoader(sessionLoaderOpts)
+
+	sessionLoaderMiddleware := middleware.NewStoredSessionLoaderFromInstance(sessionLoader)
+
+	chain = chain.Append(sessionLoaderMiddleware)
+
+	return chain, sessionLoader
 }
 
 func buildHeadersChain(opts *options.Options) (alice.Chain, error) {
@@ -490,6 +509,11 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		prepareNoCache(rw)
 	}
 
+	ctx := context.WithValue(req.Context(), string("Context-Token-Auth-Path"),
+		p.provider.Data().RedeemURL.Path)
+
+	req = req.Clone(ctx)
+
 	switch path := req.URL.Path; {
 	case path == p.RobotsPath:
 		p.RobotsTxt(rw, req)
@@ -510,7 +534,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	case path == p.provider.Data().LoginURL.Path: // Authorization Endpoint
 		p.ProxyLoginRequest(rw, req)
 	case path == p.provider.Data().RedeemURL.Path: // Token Endpoint
-		p.ProxyRefreshTokenRequest(rw, req)
+		p.ProxyTokenRequest(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -577,11 +601,8 @@ func (p *OAuthProxy) isTrustedIP(req *http.Request) bool {
 	return p.trustedIPs.Has(remoteAddr)
 }
 
-// Mimicks Login API
+// Mock OIDC login API
 func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request) {
-	// prepareNoCache(rw)
-
-	// rw.Header().Set("Content-Type", "application/json")
 
 	if req.Method == http.MethodGet {
 		if err := req.ParseForm(); err != nil {
@@ -637,9 +658,6 @@ func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request
 				clientDataArray = append(clientDataArray, responseType, scope, redirectUri, state, nonce)
 				p.provider.Data().DynamicClientConfig["dynamic_client"] = clientDataArray
 				if redirectUri != "" {
-					// q := req.URL.Query()
-					// q.Add("rd", redirectUri)
-					// req.URL.RawQuery = q.Encode()
 					req.Header.Add("X-Auth-Request-Redirect", redirectUri)
 				}
 			}
@@ -651,7 +669,7 @@ func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request
 }
 
 // Mimicks Refresh Token API
-func (p *OAuthProxy) ProxyRefreshTokenRequest(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request) {
 	prepareNoCache(rw)
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -664,7 +682,9 @@ func (p *OAuthProxy) ProxyRefreshTokenRequest(rw http.ResponseWriter, req *http.
 
 		var clientId string
 		var grantType string
+		var code string
 		var refreshToken string
+		var redirectUri string
 
 		for key := range req.PostForm {
 			value := req.PostFormValue(key)
@@ -672,40 +692,103 @@ func (p *OAuthProxy) ProxyRefreshTokenRequest(rw http.ResponseWriter, req *http.
 				clientId = value
 				continue
 			}
-			if key == "grant_type" {
-				grantType = value
+			if key == "code" {
+				code = value
 				continue
 			}
 			if key == "refresh_token" {
 				refreshToken = value
 				continue
 			}
+			if key == "redirect_uri" {
+				redirectUri = value
+			}
+			if key == "grant_type" {
+				grantType = value
+				continue
+			}
 		}
 
-		if grantType != "refresh_token" || clientId == "" || refreshToken == "" {
+		ctx := context.WithValue(req.Context(), string("OAuthProxy-SessionLoader"), p.sessionLoader)
+		req.Clone(ctx)
+
+		if grantType != "authorization_code" && grantType != "refresh_token" {
 			rw.WriteHeader(http.StatusBadRequest)
-		} else {
-			session, err0 := p.LoadCookiedSession(req)
-			if err0 != nil {
-				logger.Printf("Error loading cookied session: %v", err0)
-				rw.WriteHeader(http.StatusNotAcceptable)
-				return
-			}
+		} else if grantType == "authorization_code" {
+			if code == "" || redirectUri == "" {
+				rw.WriteHeader(http.StatusBadRequest)
+			} else {
+				session, err := p.LoadCookiedSession(req)
+				if err != nil {
+					logger.Printf("Error loading session: %v", err)
+					rw.WriteHeader(http.StatusNotFound)
+					return
+				}
+				tokenResponse := &AuthServerTokenResponse{
+					TokenType:             session.TokenType,
+					IDToken:               session.IDToken,
+					RefreshToken:          session.RefreshToken,
+					RefreshTokenExpiredOn: session.RefreshExpiresIn,
+					AccessToken:           session.AccessToken,
+					ExpireIn:              session.AccessExpiresIn,
+					Scope:                 session.Scope,
+					SessionState:          session.SessionState,
+				}
 
-			tokenResponse := struct {
-				AccessToken string `json:"accessToken"`
-			}{
-				AccessToken: session.AccessToken,
+				err = json.NewEncoder(rw).Encode(tokenResponse)
+				if err != nil {
+					logger.Printf("Error encoding user info: %v", err)
+					rw.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				rw.WriteHeader(http.StatusOK)
 			}
+		} else if grantType == "refresh_token" {
+			if clientId == "" || refreshToken == "" {
+				rw.WriteHeader(http.StatusBadRequest)
+			} else {
+				ctx := context.WithValue(req.Context(), string("Context-Skip-Refresh-Interval"),
+					true)
+				req = req.Clone(ctx)
+				session, err := p.LoadCookiedSession(req)
+				if err != nil {
+					logger.Printf("Error loading session: %v", err)
+					rw.WriteHeader(http.StatusNotFound)
+					return
+				}
+				if session != nil {
+					originalRefreshToken := session.RefreshToken
 
-			err1 := json.NewEncoder(rw).Encode(tokenResponse)
-			if err1 != nil {
-				logger.Printf("Error encoding user info: %v", err1)
-				rw.WriteHeader(http.StatusInternalServerError)
-				return
+					ctx := context.WithValue(req.Context(), string("Context-Original-RefreshToken"),
+						originalRefreshToken)
+					req = req.Clone(ctx)
+
+					err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
+					if err != nil {
+						logger.Printf("Error refreshing session: %v", err)
+						rw.WriteHeader(http.StatusNotFound)
+						return
+					}
+				}
+				tokenResponse := &AuthServerTokenResponse{
+					TokenType:             session.TokenType,
+					IDToken:               session.IDToken,
+					RefreshToken:          session.RefreshToken,
+					RefreshTokenExpiredOn: session.RefreshExpiresIn,
+					AccessToken:           session.AccessToken,
+					ExpireIn:              session.AccessExpiresIn,
+					Scope:                 session.Scope,
+					SessionState:          session.SessionState,
+				}
+
+				err = json.NewEncoder(rw).Encode(tokenResponse)
+				if err != nil {
+					logger.Printf("Error encoding user info: %v", err)
+					rw.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				rw.WriteHeader(http.StatusOK)
 			}
-
-			rw.WriteHeader(http.StatusOK)
 		}
 	} else {
 		rw.WriteHeader(http.StatusMethodNotAllowed)
@@ -798,17 +881,11 @@ func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 		Email             string   `json:"email"`
 		Groups            []string `json:"groups,omitempty"`
 		PreferredUsername string   `json:"preferredUsername,omitempty"`
-		// AccessToken       string   `json:"accessToken"`
-		// RefreshToken      string   `json:"refreshToken"`
-		// IDToken           string   `json:"idToken"`
 	}{
 		User:              session.User,
 		Email:             session.Email,
 		Groups:            session.Groups,
 		PreferredUsername: session.PreferredUsername,
-		// AccessToken:       session.AccessToken,
-		// RefreshToken:      session.RefreshToken,
-		// IDToken:           session.IDToken,
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -964,6 +1041,9 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			}
 			q := req.URL.Query()
 			q.Add("code", ticketID)
+			if session.SessionState != "" {
+				q.Add("session_state", session.SessionState)
+			}
 			req.URL.RawQuery = q.Encode()
 			appRedirect = req.URL.String()
 		}
@@ -982,6 +1062,10 @@ func (p *OAuthProxy) getClientID(req *http.Request) (string, error) {
 	return clientID, nil
 }
 
+func (p *OAuthProxy) getSessionChain() alice.Chain {
+	return p.sessionChain
+}
+
 func (p *OAuthProxy) redeemCode(req *http.Request, clientId string) (*sessionsapi.SessionState, error) {
 	code := req.Form.Get("code")
 	if code == "" {
@@ -990,7 +1074,7 @@ func (p *OAuthProxy) redeemCode(req *http.Request, clientId string) (*sessionsap
 
 	redirectURI := p.getOAuthRedirectURI(req)
 	ctx := req.Context()
-	ctxNew := context.WithValue(ctx, string("clientId"), clientId)
+	ctxNew := context.WithValue(ctx, string("Context-Client-Id"), clientId)
 	s, err := p.provider.Redeem(ctxNew, redirectURI, code)
 	if err != nil {
 		return nil, err

@@ -543,7 +543,7 @@ func TestBasicAuthPassword(t *testing.T) {
 	// Save the required session
 	rw := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
-	err = proxy.sessionStore.Save(rw, req, &sessions.SessionState{
+	_, err = proxy.sessionStore.Save(rw, req, &sessions.SessionState{
 		Email: emailAddress,
 	})
 	assert.NoError(t, err)
@@ -602,7 +602,7 @@ func TestPassGroupsHeadersWithGroups(t *testing.T) {
 	// Save the required session
 	rw := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
-	err = proxy.sessionStore.Save(rw, req, session)
+	_, err = proxy.sessionStore.Save(rw, req, session)
 	assert.NoError(t, err)
 
 	// Extract the cookie value to inject into the test request
@@ -1025,7 +1025,7 @@ func NewProcessCookieTestWithOptionsModifiers(modifiers ...OptionsModifier) (*Pr
 }
 
 func (p *ProcessCookieTest) SaveSession(s *sessions.SessionState) error {
-	err := p.proxy.SaveSession(p.rw, p.req, s)
+	_, err := p.proxy.SaveSession(p.rw, p.req, s)
 	if err != nil {
 		return err
 	}
@@ -1711,7 +1711,7 @@ func (st *SignatureTest) MakeRequestWithExpectedKey(method, body, key string) er
 
 	state := &sessions.SessionState{
 		Email: "mbland@acm.org", AccessToken: "my_access_token"}
-	err = proxy.SaveSession(st.rw, req, state)
+	_, err = proxy.SaveSession(st.rw, req, state)
 	if err != nil {
 		return err
 	}

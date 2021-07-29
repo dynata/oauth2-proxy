@@ -118,7 +118,8 @@ var _ = Describe("Stored Session Suite", func() {
 				// Create the handler with a next handler that will capture the session
 				// from the scope
 				var gotSession *sessionsapi.SessionState
-				handler := NewStoredSessionLoader(opts)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				loader := GenerateSessionLoader(opts)
+				handler := NewStoredSessionLoaderFromInstance(loader)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					gotSession = middlewareapi.GetRequestScope(r).Session
 				}))
 				handler.ServeHTTP(rw, req)
@@ -258,7 +259,7 @@ var _ = Describe("Stored Session Suite", func() {
 				refreshed := false
 				validated := false
 
-				s := &storedSessionLoader{
+				s := &StoredSessionLoader{
 					refreshPeriod: in.refreshPeriod,
 					store:         &fakeSessionStore{},
 					refreshSessionWithProviderIfNeeded: func(_ context.Context, ss *sessionsapi.SessionState) (bool, error) {
@@ -378,7 +379,7 @@ var _ = Describe("Stored Session Suite", func() {
 			func(in refreshSessionWithProviderTableInput) {
 				saved := false
 
-				s := &storedSessionLoader{
+				s := &StoredSessionLoader{
 					store: &fakeSessionStore{
 						SaveFunc: func(_ http.ResponseWriter, _ *http.Request, ss *sessionsapi.SessionState) (string, error) {
 							saved = true
@@ -450,10 +451,10 @@ var _ = Describe("Stored Session Suite", func() {
 	})
 
 	Context("validateSession", func() {
-		var s *storedSessionLoader
+		var s *StoredSessionLoader
 
 		BeforeEach(func() {
-			s = &storedSessionLoader{
+			s = &StoredSessionLoader{
 				validateSessionState: func(_ context.Context, ss *sessionsapi.SessionState) bool {
 					return ss.AccessToken == "Valid"
 				},

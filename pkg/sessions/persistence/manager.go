@@ -1,14 +1,15 @@
 package persistence
 
 import (
-	b64 "encoding/base64"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
-	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/encryption"
 )
 
 // Manager wraps a Store and handles the implementation details of the
@@ -31,12 +32,16 @@ func NewManager(store Store, cookieOpts *options.Cookie) *Manager {
 // existing) ticket which manages unique per session encryption & retrieval
 // from the persistent data store.
 func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.SessionState) (string, error) {
+	var ticket_uuid string
+
 	if s.CreatedAt == nil || s.CreatedAt.IsZero() {
 		now := time.Now()
 		s.CreatedAt = &now
 	}
-
-	tckt, err := decodeTicketFromRequest(req, m.Options)
+	tckt, err := m.decodeMockOIDCTokenRequest(req, m.Options)
+	if err != nil || tckt == nil {
+		tckt, err = decodeTicketFromRequest(req, m.Options)
+	}
 	if err != nil {
 		tckt, err = newTicket(m.Options)
 		if err != nil {
@@ -44,25 +49,25 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 		}
 	}
 
-	err = tckt.saveSession(s, func(key string, val []byte, exp time.Duration) error {
+	ticket_uuid = uuid.NewString()
+
+	err = tckt.saveSession(req.Context(), s, ticket_uuid, func(key string, val []byte, exp time.Duration) error {
 		return m.Store.Save(req.Context(), key, val, exp)
 	})
 	if err != nil {
 		return "", err
 	}
 
-	signedTicketId, err := encryption.SignedValue(tckt.options.Secret, tckt.options.Name, []byte(tckt.id), *s.CreatedAt)
-	if err != nil {
-		return "", err
-	}
-
-	return b64.RawURLEncoding.EncodeToString([]byte(signedTicketId)), tckt.setCookie(rw, req, s)
+	return base64.RawURLEncoding.EncodeToString([]byte(ticket_uuid)), tckt.setCookie(rw, req, s)
 }
 
 // Load reads sessions.SessionState information from a session store. It will
 // use the session ticket from the http.Request's cookie.
 func (m *Manager) Load(req *http.Request) (*sessions.SessionState, error) {
-	tckt, err := decodeTicketFromRequest(req, m.Options)
+	tckt, err := m.decodeMockOIDCTokenRequest(req, m.Options)
+	if err != nil || tckt == nil {
+		tckt, err = decodeTicketFromRequest(req, m.Options)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -97,4 +102,39 @@ func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
 	return tckt.clearSession(func(key string) error {
 		return m.Store.Clear(req.Context(), key)
 	})
+}
+
+func (m *Manager) decodeMockOIDCTokenRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
+	// first mock API processing is done with provided code to get session from
+	mockTokenPath := fmt.Sprintf("%v", req.Context().Value(string("Context-Token-Auth-Path")))
+	encodedUserCode := req.FormValue("code")
+	userRefreshToken := req.FormValue("refresh_token")
+
+	if encodedUserCode != "" {
+		if mockTokenPath != "" && req.URL.Path == mockTokenPath {
+			decodedUserCode, err := base64.RawURLEncoding.DecodeString(encodedUserCode)
+			if err == nil {
+				return decodeUUIDTicket(string(decodedUserCode),
+					func(key string) ([]byte, error) {
+						return m.Store.Load(req.Context(), key)
+					},
+					func(key string) error {
+						return m.Store.Clear(req.Context(), key)
+					},
+					cookieOpts)
+			}
+		}
+	} else if userRefreshToken != "" {
+		if mockTokenPath != "" && req.URL.Path == mockTokenPath {
+			return loadSessionFromRefreshToken(
+				userRefreshToken,
+				cookieOpts,
+				func(key string) ([]byte, error) {
+					return m.Store.Load(req.Context(), key)
+				},
+				m.Store.Lock,
+			)
+		}
+	}
+	return nil, errors.New("proxy mock api urls matching failed")
 }

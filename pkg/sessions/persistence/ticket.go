@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/rand"
 	"encoding/base64"
@@ -90,6 +91,33 @@ func decodeTicket(encTicket string, cookieOpts *options.Cookie) (*ticket, error)
 	}, nil
 }
 
+func decodeUUIDTicket(decodedTicket string, loadUUIDTicket loadFunc, clearUUIDTicket clearFunc,
+	cookieOpts *options.Cookie) (*ticket, error) {
+
+	ticketBytes, err := loadUUIDTicket(decodedTicket)
+
+	if err != nil {
+		return nil, err
+	}
+
+	ticketParts := strings.Split(string(ticketBytes), ".")
+
+	ticketID, secretBase64 := ticketParts[0], ticketParts[1]
+
+	secret, err := base64.RawURLEncoding.DecodeString(secretBase64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode encryption secret: %v", err)
+	}
+
+	clearUUIDTicket(decodedTicket)
+
+	return &ticket{
+		id:      ticketID,
+		secret:  secret,
+		options: cookieOpts,
+	}, nil
+}
+
 // decodeTicketFromRequest retrieves a potential ticket cookie from a request
 // and decodes it to a ticket.
 func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
@@ -111,7 +139,7 @@ func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ti
 
 // saveSession encodes the SessionState with the ticket's secret and persists
 // it to disk via the passed saveFunc.
-func (t *ticket) saveSession(s *sessions.SessionState, saver saveFunc) error {
+func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, ticket_uuid string, saver saveFunc) error {
 	c, err := t.makeCipher()
 	if err != nil {
 		return err
@@ -121,16 +149,30 @@ func (t *ticket) saveSession(s *sessions.SessionState, saver saveFunc) error {
 		return fmt.Errorf("failed to encode the session state with the ticket: %v", err)
 	}
 
-	if s.RefreshToken != "" {
-		encryptedValue, err := encryption.
-			SignedValue(t.options.Secret, t.options.Name, []byte(s.RefreshToken), *s.CreatedAt)
-		// encryptedValue, err := c.Encrypt([]byte(s.RefreshToken))
-		if err != nil {
-			return fmt.Errorf("failed to encrypt refresh token for storing as a key: %v", err)
-		}
-		err = saver(string(encryptedValue), []byte(t.id), t.options.Expire)
+	encodedTicket := t.encodeTicket()
+
+	originalRefreshToken := ctx.Value(string("Context-Original-RefreshToken"))
+	originalRefreshTokenStr, _ := originalRefreshToken.(string)
+
+	if originalRefreshTokenStr == "" { //request is not comming from refresh filter
+		err = saver(ticket_uuid, []byte(encodedTicket), time.Minute*60*5)
 		if err != nil {
 			return err
+		}
+	}
+
+	if s.RefreshToken != "" {
+		if originalRefreshTokenStr == "" { //request is not comming from refresh filter
+			encodedRefreshToken := base64.RawURLEncoding.EncodeToString([]byte(s.RefreshToken))
+
+			if encodedRefreshToken == "" {
+				return fmt.Errorf("failed to encode refresh token for storing as a key: %v", err)
+			}
+
+			err = saver(string(encodedRefreshToken), []byte(encodedTicket), t.options.Expire)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	err = saver(t.id, ciphertext, t.options.Expire)
@@ -161,6 +203,20 @@ func (t *ticket) loadSession(loader loadFunc, initLock initLockFunc) (*sessions.
 	lock := initLock(t.id)
 	sessionState.Lock = lock
 	return sessionState, nil
+}
+
+func loadSessionFromRefreshToken(refreshToken string, cookieOpts *options.Cookie,
+	loader loadFunc, initLock initLockFunc) (*ticket, error) {
+	encodedRefreshToken := base64.RawURLEncoding.EncodeToString([]byte(refreshToken))
+	originalTicketId, err := loader(encodedRefreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load the refresh token session state with the ticket: %v", err)
+	}
+	originalTicket, err := decodeTicket(string(originalTicketId), cookieOpts)
+	if err != nil {
+		return nil, err
+	}
+	return originalTicket, nil
 }
 
 // clearSession uses the passed clearFunc to delete a session stored with a

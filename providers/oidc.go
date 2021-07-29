@@ -51,7 +51,7 @@ func (p *OIDCProvider) Redeem(ctx context.Context, redirectURL, code string) (*s
 
 	clientId := p.ClientID
 
-	clientIdFromCtx := ctx.Value(string("clientId"))
+	clientIdFromCtx := ctx.Value(string("Context-Client-Id"))
 
 	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
 		clientId = values[0]
@@ -155,7 +155,11 @@ func (p *OIDCProvider) ValidateSession(ctx context.Context, s *sessions.SessionS
 // RefreshSessionIfNeeded checks if the session has expired and uses the
 // RefreshToken to fetch a new Access Token (and optional ID token) if required
 func (p *OIDCProvider) RefreshSessionIfNeeded(ctx context.Context, s *sessions.SessionState) (bool, error) {
-	if s == nil || (s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) || s.RefreshToken == "" {
+	skipRefreshIntervalTest := ctx.Value(string("Context-Skip-Refresh-Interval"))
+	skipRefreshIntervalTestBool, _ := skipRefreshIntervalTest.(bool)
+
+	if !skipRefreshIntervalTestBool &&
+		(s == nil || (s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) || s.RefreshToken == "") {
 		return false, nil
 	}
 
@@ -178,7 +182,7 @@ func (p *OIDCProvider) redeemRefreshToken(ctx context.Context, s *sessions.Sessi
 
 	clientId := p.ClientID
 
-	clientIdFromCtx := ctx.Value(string("clientId"))
+	clientIdFromCtx := ctx.Value(string("Context-Client-Id"))
 
 	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
 		clientId = values[0]
@@ -196,6 +200,7 @@ func (p *OIDCProvider) redeemRefreshToken(ctx context.Context, s *sessions.Sessi
 		RefreshToken: s.RefreshToken,
 		Expiry:       time.Now().Add(-time.Hour),
 	}
+
 	token, err := c.TokenSource(ctx, t).Token()
 	if err != nil {
 		return fmt.Errorf("failed to get token: %v", err)
@@ -221,6 +226,12 @@ func (p *OIDCProvider) redeemRefreshToken(ctx context.Context, s *sessions.Sessi
 	s.RefreshToken = newSession.RefreshToken
 	s.CreatedAt = newSession.CreatedAt
 	s.ExpiresOn = newSession.ExpiresOn
+
+	s.AccessExpiresIn = newSession.AccessExpiresIn
+	s.RefreshExpiresIn = newSession.RefreshExpiresIn
+	s.TokenType = newSession.TokenType
+	s.Scope = newSession.Scope
+	s.SessionState = newSession.SessionState
 
 	return nil
 }
@@ -278,6 +289,22 @@ func (p *OIDCProvider) createSession(ctx context.Context, token *oauth2.Token, r
 	created := time.Now()
 	ss.CreatedAt = &created
 	ss.ExpiresOn = &token.Expiry
+
+	if token.Extra("expires_in") != nil {
+		ss.AccessExpiresIn = token.Extra("expires_in").(float64)
+	}
+	if token.Extra("refresh_expires_in") != nil {
+		ss.RefreshExpiresIn = token.Extra("refresh_expires_in").(float64)
+	}
+	if token.Type() != "" {
+		ss.TokenType = token.Type()
+	}
+	if token.Extra("scope") != nil {
+		ss.Scope = token.Extra("scope").(string)
+	}
+	if token.Extra("session_state") != nil {
+		ss.SessionState = token.Extra("session_state").(string)
+	}
 
 	return ss, nil
 }

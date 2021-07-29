@@ -63,6 +63,35 @@ func Validate(cookie *http.Cookie, seed string, expiration time.Duration) (value
 	return
 }
 
+func ValidateValue(inputValue string, name string, seed string, expiration time.Duration) (value []byte, t time.Time, ok bool) {
+	// value, timestamp, sig
+	parts := strings.Split(inputValue, "|")
+	if len(parts) != 3 {
+		return
+	}
+	if checkSignature(parts[2], seed, name, parts[0], parts[1]) {
+		ts, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return
+		}
+		// The expiration timestamp set when the cookie was created
+		// isn't sent back by the browser. Hence, we check whether the
+		// creation timestamp stored in the cookie falls within the
+		// window defined by (Now()-expiration, Now()].
+		t = time.Unix(int64(ts), 0)
+		if t.After(time.Now().Add(expiration*-1)) && t.Before(time.Now().Add(time.Minute*5)) {
+			// it's a valid cookie. now get the contents
+			rawValue, err := base64.URLEncoding.DecodeString(parts[0])
+			if err == nil {
+				value = rawValue
+				ok = true
+				return
+			}
+		}
+	}
+	return
+}
+
 // SignedValue returns a cookie that is signed and can later be checked with Validate
 func SignedValue(seed string, key string, value []byte, now time.Time) (string, error) {
 	encodedValue := base64.URLEncoding.EncodeToString(value)

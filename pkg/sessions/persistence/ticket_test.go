@@ -71,7 +71,7 @@ var _ = Describe("Session Ticket Tests", func() {
 
 			ss := &sessions.SessionState{User: "foobar"}
 			store := map[string][]byte{}
-			err = t.saveSession(ss, func(k string, v []byte, e time.Duration) error {
+			err = t.saveSession(nil, ss, "ticket_uuid", func(k string, v []byte, e time.Duration) error {
 				store[k] = v
 				return nil
 			})
@@ -86,8 +86,8 @@ var _ = Describe("Session Ticket Tests", func() {
 			t, err := newTicket(&options.Cookie{Name: "dummy"})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = t.saveSession(
-				&sessions.SessionState{User: "foobar"},
+			err = t.saveSession(nil,
+				&sessions.SessionState{User: "foobar"}, "ticket_uuid",
 				func(k string, v []byte, e time.Duration) error {
 					return errors.New("save error")
 				})

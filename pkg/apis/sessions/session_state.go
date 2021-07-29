@@ -33,6 +33,12 @@ type SessionState struct {
 	PreferredUsername string   `msgpack:"pu,omitempty"`
 
 	Lock Lock `msgpack:"-"`
+
+	SessionState     string  `msgpack:"ss,omitempty"`
+	Scope            string  `msgpack:"sc,omitempty"`
+	TokenType        string  `msgpack:"tt,omitempty"`
+	AccessExpiresIn  float64 `msgpack:"ae,omitempty"`
+	RefreshExpiresIn float64 `msgpack:"ee,omitempty"`
 }
 
 func (s *SessionState) ObtainLock(ctx context.Context, expiration time.Duration) error {
