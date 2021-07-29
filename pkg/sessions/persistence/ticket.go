@@ -18,7 +18,6 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/cookies"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/encryption"
-	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 )
 
 // saveFunc performs a persistent store's save functionality using
@@ -176,25 +175,30 @@ func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, tick
 	originalRefreshToken := ctx.Value(constants.ContextOriginalRefreshToken)
 	originalRefreshTokenStr, _ := originalRefreshToken.(string)
 
-	logger.Printf("---> " + originalRefreshTokenStr)
+	IsOauthMockRequestCall := ctx.Value(constants.ContextIsMockOauthTokenRequestCall)
+	IsOauthMockRequestCallValue, _ := IsOauthMockRequestCall.(bool)
 
-	if originalRefreshTokenStr == "" { //request is not comming from refresh filter
-		err = saver(ticket_uuid, []byte(encodedTicket), time.Minute)
+	if originalRefreshTokenStr != "" { //new refresh token request
+		err = saveRefreshToken(encodedTicket, originalRefreshTokenStr, saver) //update existing refresh token
 		if err != nil {
 			return err
 		}
 	} else {
-		saveRefreshToken(encodedTicket, originalRefreshTokenStr, saver)
-	}
-
-	if s.RefreshToken != "" {
-		if originalRefreshTokenStr == "" { //request is not comming from refresh filter
+		err = saver(ticket_uuid, []byte(encodedTicket), time.Minute)
+		if err != nil {
+			return err
+		}
+		if s.RefreshToken != "" {
 			saveRefreshToken(encodedTicket, s.RefreshToken, saver)
 		}
 	}
-	err = saver(t.id, ciphertext, t.options.Expire)
-	if err != nil {
-		return err
+	if !IsOauthMockRequestCallValue || originalRefreshTokenStr == "" {
+		// update session incase of not an Oauth Mock request or
+		// a protected page request
+		err = saver(t.id, ciphertext, t.options.Expire)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

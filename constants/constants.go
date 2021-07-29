@@ -7,4 +7,5 @@ const (
 	ContextTokenAuthPath
 	ContextSkipRefreshInterval
 	ContextOriginalRefreshToken
+	ContextIsMockOauthTokenRequestCall
 )

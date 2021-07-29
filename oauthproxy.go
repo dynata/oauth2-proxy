@@ -675,6 +675,9 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 
 	rw.Header().Set("Content-Type", "application/json")
 
+	ctx := context.WithValue(req.Context(), constants.ContextIsMockOauthTokenRequestCall, true)
+	req = req.Clone(ctx)
+
 	if req.Method == http.MethodPost {
 		if err := req.ParseForm(); err != nil {
 			logger.Errorf("Error parsing form data: %v", err)
@@ -709,9 +712,6 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 				continue
 			}
 		}
-
-		ctx := context.WithValue(req.Context(), string("OAuthProxy-SessionLoader"), p.sessionLoader)
-		req.Clone(ctx)
 
 		if grantType != "authorization_code" && grantType != "refresh_token" {
 			rw.WriteHeader(http.StatusBadRequest)
