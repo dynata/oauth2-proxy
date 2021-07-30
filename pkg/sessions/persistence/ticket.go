@@ -138,7 +138,7 @@ func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ti
 	return decodeTicket(string(val), cookieOpts)
 }
 
-func saveRefreshToken(encodedTicket string, refreshToken string, saver saveFunc) error {
+/* func saveRefreshToken(encodedTicket string, refreshToken string, saver saveFunc) error {
 	encodedRefreshToken := base64.RawURLEncoding.EncodeToString([]byte(refreshToken))
 
 	if encodedRefreshToken == "" {
@@ -156,7 +156,7 @@ func saveRefreshToken(encodedTicket string, refreshToken string, saver saveFunc)
 	}
 
 	return nil
-}
+} */
 
 // saveSession encodes the SessionState with the ticket's secret and persists
 // it to disk via the passed saveFunc.
