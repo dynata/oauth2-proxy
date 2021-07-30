@@ -138,7 +138,7 @@ func (s *StoredSessionLoader) getValidatedSession(rw http.ResponseWriter, req *h
 
 // Used when we required each http request to refresh token
 func (s *StoredSessionLoader) RefreshSessionForcefully(rw http.ResponseWriter, req *http.Request, session *sessionsapi.SessionState) error {
-	logger.Printf("Refreshing %s old session refresh token for %s (refresh after %s)", session.Age(), session, s.refreshPeriod)
+	logger.Printf("Refreshing access token using refresh token")
 
 	refreshed, err := s.refreshSessionWithProvider(rw, req, session)
 	if err != nil {

@@ -748,29 +748,24 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 			if clientId == "" || refreshToken == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
+				originalRefreshToken := refreshToken
+
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval,
 					true)
+				ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken,
+					originalRefreshToken)
+
 				req = req.Clone(ctx)
-				session, err := p.LoadCookiedSession(req)
+
+				session := &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
+
+				err := p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 				if err != nil {
-					logger.Printf("Error loading session: %v", err)
+					logger.Printf("Error refreshing session: %v", err)
 					rw.WriteHeader(http.StatusNotFound)
 					return
 				}
-				if session != nil {
-					originalRefreshToken := refreshToken
 
-					ctx := context.WithValue(req.Context(), constants.ContextOriginalRefreshToken,
-						originalRefreshToken)
-					req = req.Clone(ctx)
-
-					err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
-					if err != nil {
-						logger.Printf("Error refreshing session: %v", err)
-						rw.WriteHeader(http.StatusNotFound)
-						return
-					}
-				}
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
 					IDToken:               session.IDToken,

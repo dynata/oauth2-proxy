@@ -159,8 +159,9 @@ func (p *OIDCProvider) RefreshSessionIfNeeded(ctx context.Context, s *sessions.S
 	skipRefreshIntervalTest := ctx.Value(constants.ContextSkipRefreshInterval)
 	skipRefreshIntervalTestBool, _ := skipRefreshIntervalTest.(bool)
 
-	if !skipRefreshIntervalTestBool &&
-		(s == nil || (s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) || s.RefreshToken == "") {
+	if s == nil ||
+		(!skipRefreshIntervalTestBool && s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) ||
+		s.RefreshToken == "" {
 		return false, nil
 	}
 

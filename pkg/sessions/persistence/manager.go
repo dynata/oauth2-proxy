@@ -37,7 +37,7 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 		now := time.Now()
 		s.CreatedAt = &now
 	}
-	tckt, err := m.decodeMockOIDCTokenRequest(req, m.Options)
+	tckt, err := m.decodeMockOauthTokenRequest(req, m.Options)
 	if err != nil || tckt == nil {
 		tckt, err = decodeTicketFromRequest(req, m.Options)
 	}
@@ -63,7 +63,7 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 // Load reads sessions.SessionState information from a session store. It will
 // use the session ticket from the http.Request's cookie.
 func (m *Manager) Load(req *http.Request) (*sessions.SessionState, error) {
-	tckt, err := m.decodeMockOIDCTokenRequest(req, m.Options)
+	tckt, err := m.decodeMockOauthTokenRequest(req, m.Options)
 	if err != nil || tckt == nil {
 		tckt, err = decodeTicketFromRequest(req, m.Options)
 	}
@@ -103,7 +103,7 @@ func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
 	})
 }
 
-func (m *Manager) decodeMockOIDCTokenRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
+func (m *Manager) decodeMockOauthTokenRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
 	// first mock API processing is done with provided code to get session from
 	mockTokenPath := fmt.Sprintf("%v", req.Context().Value(constants.ContextTokenAuthPath))
 	encodedUserCode := req.FormValue("code")

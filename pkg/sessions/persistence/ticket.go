@@ -178,19 +178,14 @@ func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, tick
 	IsOauthMockRequestCall := ctx.Value(constants.ContextIsMockOauthTokenRequestCall)
 	IsOauthMockRequestCallValue, _ := IsOauthMockRequestCall.(bool)
 
-	if originalRefreshTokenStr != "" { //new refresh token request
-		err = saveRefreshToken(encodedTicket, originalRefreshTokenStr, saver) //update existing refresh token
-		if err != nil {
-			return err
-		}
-	} else {
+	if originalRefreshTokenStr == "" {
 		err = saver(ticket_uuid, []byte(encodedTicket), time.Minute)
 		if err != nil {
 			return err
 		}
-		if s.RefreshToken != "" {
+		/* if s.RefreshToken != "" {
 			saveRefreshToken(encodedTicket, s.RefreshToken, saver)
-		}
+		} */
 	}
 	if !IsOauthMockRequestCallValue || originalRefreshTokenStr == "" {
 		// update session incase of not an Oauth Mock request or
