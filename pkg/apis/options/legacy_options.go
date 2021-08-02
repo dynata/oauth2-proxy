@@ -1,6 +1,7 @@
 package options
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -48,6 +49,7 @@ func NewLegacyOptions() *LegacyOptions {
 		},
 
 		LegacyProvider: LegacyProvider{
+			Clients:               nil,
 			ProviderType:          "google",
 			AzureTenant:           "common",
 			ApprovalPrompt:        "force",
@@ -466,6 +468,8 @@ func legacyServerFlagset() *pflag.FlagSet {
 }
 
 type LegacyProvider struct {
+	Clients []map[string]string `flag:"clients" cfg:"clients"`
+
 	ClientID         string `flag:"client-id" cfg:"client_id"`
 	ClientSecret     string `flag:"client-secret" cfg:"client_secret"`
 	ClientSecretFile string `flag:"client-secret-file" cfg:"client_secret_file"`
@@ -532,6 +536,9 @@ func legacyProviderFlagSet() *pflag.FlagSet {
 	flagSet.StringSlice("google-group", []string{}, "restrict logins to members of this google group (may be given multiple times).")
 	flagSet.String("google-admin-email", "", "the google admin to impersonate for api calls")
 	flagSet.String("google-service-account-json", "", "the path to the service account json credentials")
+
+	flagSet.String("clients", "", "Multiple Clients")
+
 	flagSet.String("client-id", "", "the OAuth Client ID: ie: \"123456.apps.googleusercontent.com\"")
 	flagSet.String("client-secret", "", "the OAuth Client Secret")
 	flagSet.String("client-secret-file", "", "the file with OAuth Client Secret")
@@ -610,7 +617,30 @@ func (l LegacyServer) convert() (Server, Server) {
 func (l *LegacyProvider) convert() (Providers, error) {
 	providers := Providers{}
 
+	clients := &Clients{}
+
+	if l.Clients != nil {
+		clientConfigs := []map[string]string{}
+
+		for _, config := range l.Clients {
+			if _, ok := config["provider"]; !ok {
+				return nil, errors.New("failed to set multiple clients configuration, provider is missing")
+			}
+			if provider := config["provider"]; provider == l.ProviderType {
+				clientConfigs = append(clientConfigs, config)
+			} else {
+				continue
+			}
+		}
+
+		clients = &Clients{
+			ProviderType: l.ProviderType,
+			Configs:      clientConfigs,
+		}
+	}
+
 	provider := Provider{
+		Clients:           clients,
 		ClientID:          l.ClientID,
 		ClientSecret:      l.ClientSecret,
 		ClientSecretFile:  l.ClientSecretFile,

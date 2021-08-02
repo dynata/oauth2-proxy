@@ -5,8 +5,14 @@ import "github.com/oauth2-proxy/oauth2-proxy/v7/providers"
 // Providers is a collection of definitions for providers.
 type Providers []Provider
 
+type Clients struct {
+	ProviderType string              `json:"provider,omitempty"`
+	Configs      []map[string]string `json:"configs,omitempty"`
+}
+
 // Provider holds all configuration for a single provider
 type Provider struct {
+	Clients *Clients `json:"clients,omitempty"`
 	// ClientID is the OAuth Client ID that is defined in the provider
 	// This value is required for all providers.
 	ClientID string `json:"clientID,omitempty"`

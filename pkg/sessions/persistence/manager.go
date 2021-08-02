@@ -66,9 +66,9 @@ func (m *Manager) Load(req *http.Request) (*sessions.SessionState, error) {
 	tckt, err := m.decodeMockOauthTokenRequest(req, m.Options)
 	if err != nil || tckt == nil {
 		tckt, err = decodeTicketFromRequest(req, m.Options)
-	}
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return tckt.loadSession(

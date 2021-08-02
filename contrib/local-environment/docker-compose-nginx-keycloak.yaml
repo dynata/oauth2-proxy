@@ -42,8 +42,9 @@ services:
       - "./oauth2-proxy-nginx-keycloak.cfg:/oauth2-proxy.cfg"
     restart: unless-stopped
     networks:
-      keycloak: {}
-      oauth2-proxy: {}
+      oauth2-proxy:
+        aliases:
+          - oauth2-proxy.localhost
     depends_on:
       - keycloak
     ports:
@@ -65,6 +66,7 @@ services:
     volumes:
       - ./keycloak-nginx:/realm-config
     environment:
+      DB_VENDOR: h2
       KEYCLOAK_USER: admin@example.com
       KEYCLOAK_PASSWORD: password
     networks:
@@ -75,5 +77,9 @@ services:
       - 9080:9080/tcp
 
 networks:
-  keycloak: {}
-  oauth2-proxy: {}
+  keycloak:
+    external:
+      name: pe
+  oauth2-proxy:
+    external:
+      name: pe

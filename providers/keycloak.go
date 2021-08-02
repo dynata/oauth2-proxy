@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"reflect"
+	"strings"
 	"time"
 
+	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests"
@@ -54,13 +55,21 @@ var (
 
 // NewKeycloakProvider creates a KeyCloakProvider using the passed ProviderData
 func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
+	lastInd := strings.LastIndex(p.RedeemURL.Path, "/")
+
+	keycloakDefaultProfileURL := &url.URL{
+		Scheme: p.RedeemURL.Scheme,
+		Host:   p.RedeemURL.Host,
+		Path:   p.RedeemURL.Path[:lastInd] + "/userinfo",
+	}
+
 	p.setProviderDefaults(providerDefaults{
-		name:        keycloakProviderName,
-		loginURL:    keycloakDefaultLoginURL,
-		redeemURL:   keycloakDefaultRedeemURL,
-		profileURL:  nil,
-		validateURL: keycloakDefaultValidateURL,
-		scope:       keycloakDefaultScope,
+		// name:        keycloakProviderName,
+		// loginURL:    keycloakDefaultLoginURL,
+		// redeemURL:   keycloakDefaultRedeemURL,
+		profileURL: keycloakDefaultProfileURL,
+		// validateURL: keycloakDefaultValidateURL,
+		// scope:       keycloakDefaultScope,
 	})
 	return &KeycloakProvider{
 		ProviderData: p,
@@ -105,9 +114,51 @@ func (p *KeycloakProvider) EnrichSession(ctx context.Context, s *sessions.Sessio
 	return nil
 }
 
-/* // EnrichSession is called after Redeem to allow providers to enrich session fields
+// GetLoginURL makes the LoginURL with optional nonce support
+func (p *KeycloakProvider) GetLoginURL(redirectURI, state, nonce string) string {
+	extraParams := url.Values{}
+	if !p.SkipNonce {
+		extraParams.Add("nonce", nonce)
+	}
+	loginURL := makeLoginURL(p.Data(), redirectURI, state, extraParams)
+	return loginURL.String()
+}
+
+// Redeem exchanges the OAuth2 authentication token for an ID token
+func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string) (*sessions.SessionState, error) {
+	clientSecret, err := p.GetClientSecret()
+	if err != nil {
+		return nil, err
+	}
+
+	clientId := p.ClientID
+
+	clientIdFromCtx := ctx.Value(constants.ContextClientId)
+
+	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
+		clientId = values[0]
+		clientSecret = values[1]
+	}
+
+	c := oauth2.Config{
+		ClientID:     clientId,
+		ClientSecret: clientSecret,
+		Endpoint: oauth2.Endpoint{
+			TokenURL: p.RedeemURL.String(),
+		},
+		RedirectURL: redirectURL,
+	}
+	token, err := c.Exchange(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("token exchange failed: %v", err)
+	}
+
+	return p.createSession(ctx, token, false)
+}
+
+// EnrichSession is called after Redeem to allow providers to enrich session fields
 // such as User, Email, Groups with provider specific API calls.
-func (p *KeycloakProvider) EnrichSession(ctx context.Context, s *sessions.SessionState) error {
+/* func (p *KeycloakProvider) EnrichSession(ctx context.Context, s *sessions.SessionState) error {
 	if p.ProfileURL.String() == "" {
 		if s.Email == "" {
 			return errors.New("id_token did not contain an email and profileURL is not defined")
@@ -130,42 +181,9 @@ func (p *KeycloakProvider) EnrichSession(ctx context.Context, s *sessions.Sessio
 	return nil
 } */
 
-// GetLoginURL makes the LoginURL with optional nonce support
-func (p *KeycloakProvider) GetLoginURL(redirectURI, state, nonce string) string {
-	extraParams := url.Values{}
-	if !p.SkipNonce {
-		extraParams.Add("nonce", nonce)
-	}
-	loginURL := makeLoginURL(p.Data(), redirectURI, state, extraParams)
-	return loginURL.String()
-}
-
-// Redeem exchanges the OAuth2 authentication token for an ID token
-func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string) (*sessions.SessionState, error) {
-	clientSecret, err := p.GetClientSecret()
-	if err != nil {
-		return nil, err
-	}
-
-	c := oauth2.Config{
-		ClientID:     p.ClientID,
-		ClientSecret: clientSecret,
-		Endpoint: oauth2.Endpoint{
-			TokenURL: p.RedeemURL.String(),
-		},
-		RedirectURL: redirectURL,
-	}
-	token, err := c.Exchange(ctx, code)
-	if err != nil {
-		return nil, fmt.Errorf("token exchange failed: %v", err)
-	}
-
-	return p.createSession(ctx, token, false)
-}
-
 // enrichFromProfileURL enriches a session's Email & Groups via the JSON response of
 // an OIDC profile URL
-func (p *KeycloakProvider) enrichFromProfileURL(ctx context.Context, s *sessions.SessionState) error {
+/* func (p *KeycloakProvider) enrichFromProfileURL(ctx context.Context, s *sessions.SessionState) error {
 	respJSON, err := requests.New(p.ProfileURL.String()).
 		WithContext(ctx).
 		WithHeaders(makeOIDCHeader(s.AccessToken)).
@@ -194,7 +212,7 @@ func (p *KeycloakProvider) enrichFromProfileURL(ctx context.Context, s *sessions
 	}
 
 	return nil
-}
+} */
 
 // ValidateSession checks that the session's IDToken is still valid
 func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.SessionState) bool {
@@ -219,7 +237,12 @@ func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.Sess
 // RefreshSessionIfNeeded checks if the session has expired and uses the
 // RefreshToken to fetch a new Access Token (and optional ID token) if required
 func (p *KeycloakProvider) RefreshSessionIfNeeded(ctx context.Context, s *sessions.SessionState) (bool, error) {
-	if s == nil || (s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) || s.RefreshToken == "" {
+	skipRefreshIntervalTest := ctx.Value(constants.ContextSkipRefreshInterval)
+	skipRefreshIntervalTestBool, _ := skipRefreshIntervalTest.(bool)
+
+	if s == nil ||
+		(!skipRefreshIntervalTestBool && s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) ||
+		s.RefreshToken == "" {
 		return false, nil
 	}
 
@@ -240,8 +263,17 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 		return err
 	}
 
+	clientId := p.ClientID
+
+	clientIdFromCtx := ctx.Value(constants.ContextClientId)
+
+	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
+		clientId = values[0]
+		clientSecret = values[1]
+	}
+
 	c := oauth2.Config{
-		ClientID:     p.ClientID,
+		ClientID:     clientId,
 		ClientSecret: clientSecret,
 		Endpoint: oauth2.Endpoint{
 			TokenURL: p.RedeemURL.String(),
@@ -251,6 +283,7 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 		RefreshToken: s.RefreshToken,
 		Expiry:       time.Now().Add(-time.Hour),
 	}
+
 	token, err := c.TokenSource(ctx, t).Token()
 	if err != nil {
 		return fmt.Errorf("failed to get token: %v", err)
@@ -276,6 +309,12 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 	s.RefreshToken = newSession.RefreshToken
 	s.CreatedAt = newSession.CreatedAt
 	s.ExpiresOn = newSession.ExpiresOn
+
+	s.AccessExpiresIn = newSession.AccessExpiresIn
+	s.RefreshExpiresIn = newSession.RefreshExpiresIn
+	s.TokenType = newSession.TokenType
+	s.Scope = newSession.Scope
+	s.SessionState = newSession.SessionState
 
 	return nil
 }
@@ -333,6 +372,22 @@ func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Toke
 	created := time.Now()
 	ss.CreatedAt = &created
 	ss.ExpiresOn = &token.Expiry
+
+	if token.Extra("expires_in") != nil {
+		ss.AccessExpiresIn = token.Extra("expires_in").(float64)
+	}
+	if token.Extra("refresh_expires_in") != nil {
+		ss.RefreshExpiresIn = token.Extra("refresh_expires_in").(float64)
+	}
+	if token.Type() != "" {
+		ss.TokenType = token.Type()
+	}
+	if token.Extra("scope") != nil {
+		ss.Scope = token.Extra("scope").(string)
+	}
+	if token.Extra("session_state") != nil {
+		ss.SessionState = token.Extra("session_state").(string)
+	}
 
 	return ss, nil
 }
