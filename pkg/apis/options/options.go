@@ -66,27 +66,34 @@ type Options struct {
 	LegacyPreferEmailToUser bool `cfg:",internal"`
 
 	// internal values that are set after config validation
-	redirectURL        *url.URL
-	provider           providers.Provider
-	signatureData      *SignatureData
-	oidcVerifier       *oidc.IDTokenVerifier
-	jwtBearerVerifiers []*oidc.IDTokenVerifier
-	realClientIPParser ipapi.RealClientIPParser
+	redirectURL          *url.URL
+	provider             providers.Provider
+	signatureData        *SignatureData
+	oidcVerifier         *oidc.IDTokenVerifier
+	oidcClientsVerifiers map[string]*oidc.IDTokenVerifier
+	jwtBearerVerifiers   []*oidc.IDTokenVerifier
+	realClientIPParser   ipapi.RealClientIPParser
 }
 
 // Options for Getting internal values
-func (o *Options) GetRedirectURL() *url.URL                        { return o.redirectURL }
-func (o *Options) GetProvider() providers.Provider                 { return o.provider }
-func (o *Options) GetSignatureData() *SignatureData                { return o.signatureData }
-func (o *Options) GetOIDCVerifier() *oidc.IDTokenVerifier          { return o.oidcVerifier }
+func (o *Options) GetRedirectURL() *url.URL               { return o.redirectURL }
+func (o *Options) GetProvider() providers.Provider        { return o.provider }
+func (o *Options) GetSignatureData() *SignatureData       { return o.signatureData }
+func (o *Options) GetOIDCVerifier() *oidc.IDTokenVerifier { return o.oidcVerifier }
+func (o *Options) GetOIDCClientsVerifiers() map[string]*oidc.IDTokenVerifier {
+	return o.oidcClientsVerifiers
+}
 func (o *Options) GetJWTBearerVerifiers() []*oidc.IDTokenVerifier  { return o.jwtBearerVerifiers }
 func (o *Options) GetRealClientIPParser() ipapi.RealClientIPParser { return o.realClientIPParser }
 
 // Options for Setting internal values
-func (o *Options) SetRedirectURL(s *url.URL)                        { o.redirectURL = s }
-func (o *Options) SetProvider(s providers.Provider)                 { o.provider = s }
-func (o *Options) SetSignatureData(s *SignatureData)                { o.signatureData = s }
-func (o *Options) SetOIDCVerifier(s *oidc.IDTokenVerifier)          { o.oidcVerifier = s }
+func (o *Options) SetRedirectURL(s *url.URL)               { o.redirectURL = s }
+func (o *Options) SetProvider(s providers.Provider)        { o.provider = s }
+func (o *Options) SetSignatureData(s *SignatureData)       { o.signatureData = s }
+func (o *Options) SetOIDCVerifier(s *oidc.IDTokenVerifier) { o.oidcVerifier = s }
+func (o *Options) SetOIDCClientsVerifiers(s map[string]*oidc.IDTokenVerifier) {
+	o.oidcClientsVerifiers = s
+}
 func (o *Options) SetJWTBearerVerifiers(s []*oidc.IDTokenVerifier)  { o.jwtBearerVerifiers = s }
 func (o *Options) SetRealClientIPParser(s ipapi.RealClientIPParser) { o.realClientIPParser = s }
 

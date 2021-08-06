@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests"
@@ -55,22 +56,22 @@ var (
 
 // NewKeycloakProvider creates a KeyCloakProvider using the passed ProviderData
 func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
-	lastInd := strings.LastIndex(p.RedeemURL.Path, "/")
-
-	keycloakDefaultProfileURL := &url.URL{
-		Scheme: p.RedeemURL.Scheme,
-		Host:   p.RedeemURL.Host,
-		Path:   p.RedeemURL.Path[:lastInd] + "/userinfo",
+	if p.ProfileURL == nil || p.ProfileURL.Host == "" {
+		lastInd := strings.LastIndex(p.RedeemURL.Path, "/")
+		keycloakDefaultProfileURL := &url.URL{
+			Scheme: p.RedeemURL.Scheme,
+			Host:   p.RedeemURL.Host,
+			Path:   p.RedeemURL.Path[:lastInd] + "/userinfo",
+		}
+		p.setProviderDefaults(providerDefaults{
+			// name:        keycloakProviderName,
+			// loginURL:    keycloakDefaultLoginURL,
+			// redeemURL:   keycloakDefaultRedeemURL,
+			profileURL: keycloakDefaultProfileURL,
+			// validateURL: keycloakDefaultValidateURL,
+			// scope:       keycloakDefaultScope,
+		})
 	}
-
-	p.setProviderDefaults(providerDefaults{
-		// name:        keycloakProviderName,
-		// loginURL:    keycloakDefaultLoginURL,
-		// redeemURL:   keycloakDefaultRedeemURL,
-		profileURL: keycloakDefaultProfileURL,
-		// validateURL: keycloakDefaultValidateURL,
-		// scope:       keycloakDefaultScope,
-	})
 	return &KeycloakProvider{
 		ProviderData: p,
 		SkipNonce:    true,
@@ -115,12 +116,12 @@ func (p *KeycloakProvider) EnrichSession(ctx context.Context, s *sessions.Sessio
 }
 
 // GetLoginURL makes the LoginURL with optional nonce support
-func (p *KeycloakProvider) GetLoginURL(redirectURI, state, nonce string) string {
+func (p *KeycloakProvider) GetLoginURL(ctx context.Context, redirectURI, state, nonce string) string {
 	extraParams := url.Values{}
 	if !p.SkipNonce {
 		extraParams.Add("nonce", nonce)
 	}
-	loginURL := makeLoginURL(p.Data(), redirectURI, state, extraParams)
+	loginURL := makeLoginURL(ctx, p.Data(), redirectURI, state, extraParams)
 	return loginURL.String()
 }
 
@@ -133,11 +134,15 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 
 	clientId := p.ClientID
 
-	clientIdFromCtx := ctx.Value(constants.ContextClientId)
-
-	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
-		clientId = values[0]
-		clientSecret = values[1]
+	requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
+	if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
+		clientId = v
+	}
+	if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
+		clientSecret = v
+	}
+	if v, ok := requestedClientConfig["redirect_uri"]; ok && v != redirectURL {
+		redirectURL = v
 	}
 
 	c := oauth2.Config{
@@ -153,7 +158,13 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 		return nil, fmt.Errorf("token exchange failed: %v", err)
 	}
 
-	return p.createSession(ctx, token, false)
+	ss, err := p.createSession(ctx, token, false)
+
+	if ss != nil {
+		ss.ClientId = clientId
+	}
+
+	return ss, err
 }
 
 // EnrichSession is called after Redeem to allow providers to enrich session fields
@@ -216,7 +227,14 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 
 // ValidateSession checks that the session's IDToken is still valid
 func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.SessionState) bool {
-	idToken, err := p.Verifier.Verify(ctx, s.IDToken)
+	verifier := p.Verifier
+
+	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
+	if requestedClientVerifier != nil {
+		verifier = requestedClientVerifier
+	}
+
+	idToken, err := verifier.Verify(ctx, s.IDToken)
 	if err != nil {
 		logger.Errorf("id_token verification failed: %v", err)
 		return false
@@ -265,11 +283,24 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 
 	clientId := p.ClientID
 
-	clientIdFromCtx := ctx.Value(constants.ContextClientId)
-
-	if values, set := p.Data().DynamicClientConfig["dynamic_client"]; set && clientIdFromCtx == values[0] {
-		clientId = values[0]
-		clientSecret = values[1]
+	if s.ClientId != "" {
+		clientId = s.ClientId
+		clientConfigs := p.Clients[clientId]
+		for _, client := range clientConfigs {
+			if client["client_id"] != "" && client["client_secret"] != "" {
+				clientId = client["client_id"]
+				clientSecret = client["client_secret"]
+				break
+			}
+		}
+	} else if ctx != nil {
+		requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
+		if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
+			clientId = v
+		}
+		if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
+			clientSecret = v
+		}
 	}
 
 	c := oauth2.Config{
@@ -315,6 +346,7 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 	s.TokenType = newSession.TokenType
 	s.Scope = newSession.Scope
 	s.SessionState = newSession.SessionState
+	s.ClientId = clientId
 
 	return nil
 }

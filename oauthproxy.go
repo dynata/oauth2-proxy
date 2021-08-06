@@ -340,6 +340,7 @@ func buildSessionChain(opts *options.Options, sessionStore sessionsapi.SessionSt
 	sessionLoaderOpts := &middleware.StoredSessionLoaderOptions{
 		SessionStore:           sessionStore,
 		RefreshPeriod:          opts.Cookie.Refresh,
+		ProviderData:           opts.GetProvider().Data(),
 		RefreshSessionIfNeeded: opts.GetProvider().RefreshSessionIfNeeded,
 		ValidateSessionState:   opts.GetProvider().ValidateSession,
 	}
@@ -611,56 +612,44 @@ func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request
 			return
 		}
 
-		var clientId string
-		var responseType string
-		var scope string
-		var redirectUri string
-		var state string
-		var nonce string
-		var kcIdpHint string
+		req.Header.Add("X-Auth-Request-Redirect", req.FormValue("redirect_uri"))
 
-		for key := range req.URL.Query() {
-			value := req.Form.Get(key)
-			if key == "client_id" {
-				clientId = value
-				continue
+		clients := p.provider.Data().Clients[req.FormValue("client_id")]
+		for _, clientConfigs := range clients {
+			// making a copy for request scope
+			config := make(map[string]string)
+			for key, value := range clientConfigs {
+				config[key] = value
 			}
-			if key == "response_type" {
-				responseType = value
-				continue
-			}
-			if key == "scope" {
-				scope = value
-				continue
-			}
-			if key == "redirect_uri" {
-				redirectUri = value
-				continue
-			}
-			if key == "state" {
-				state = value
-				continue
-			}
-			if key == "nonce" {
-				nonce = value
-				continue
-			}
-			if key == "kc_idp_hint" {
-				kcIdpHint = value
-				continue
-			}
-		}
 
-		if clientDataArray, set := p.provider.Data().DynamicClientConfig["dynamic_client"]; set {
-			if len(clientDataArray) >= 1 && clientId == clientDataArray[0] && responseType == "code" {
-				if kcIdpHint != "" {
-					clientDataArray[2] = kcIdpHint
+			configClientId, clientIdOk := config["client_id"]
+			_, clientSecretOk := config["client_secret"]
+			_, clientSecretFileOk := config["client_secret_file"]
+			configRedirectUri, redirectUriOk := config["redirect_uri"]
+
+			if clientIdOk && redirectUriOk && (clientSecretOk || clientSecretFileOk) &&
+				configClientId != "" && configClientId == req.FormValue("client_id") &&
+				configRedirectUri != "" {
+
+				if req.FormValue("scope") != "" {
+					config["scope"] = req.FormValue("scope")
 				}
-				clientDataArray = append(clientDataArray, responseType, scope, redirectUri, state, nonce)
-				p.provider.Data().DynamicClientConfig["dynamic_client"] = clientDataArray
-				if redirectUri != "" {
-					req.Header.Add("X-Auth-Request-Redirect", redirectUri)
+				if req.FormValue("acr_values") != "" {
+					config["acr_values"] = req.FormValue("acr_values")
 				}
+				if req.FormValue("prompt") != "" {
+					config["prompt"] = req.FormValue("prompt")
+				}
+				if req.FormValue("approval_prompt") != "" {
+					config["approval_prompt"] = req.FormValue("approval_prompt")
+				}
+
+				if req.FormValue("kc_idp_hint") != "" {
+					config["kc_idp_hint"] = req.FormValue("kc_idp_hint")
+				}
+
+				middlewareapi.GetRequestScope(req).RequestedClientConfig = config
+				middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
 			}
 		}
 
@@ -684,39 +673,11 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 			return
 		}
 
-		var clientId string
-		var grantType string
-		var code string
-		var refreshToken string
-		var redirectUri string
-
-		for key := range req.PostForm {
-			value := req.PostFormValue(key)
-			if key == "client_id" {
-				clientId = value
-				continue
-			}
-			if key == "code" {
-				code = value
-				continue
-			}
-			if key == "refresh_token" {
-				refreshToken = value
-				continue
-			}
-			if key == "redirect_uri" {
-				redirectUri = value
-			}
-			if key == "grant_type" {
-				grantType = value
-				continue
-			}
-		}
-
-		if grantType != "authorization_code" && grantType != "refresh_token" {
+		if req.FormValue("grant_type") != "authorization_code" &&
+			req.FormValue("grant_type") != "refresh_token" {
 			rw.WriteHeader(http.StatusBadRequest)
-		} else if grantType == "authorization_code" {
-			if code == "" || redirectUri == "" {
+		} else if req.FormValue("grant_type") == "authorization_code" {
+			if req.FormValue("code") == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
 				session, err := p.LoadCookiedSession(req)
@@ -744,11 +705,31 @@ func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request
 				}
 				rw.WriteHeader(http.StatusOK)
 			}
-		} else if grantType == "refresh_token" {
-			if clientId == "" || refreshToken == "" {
+		} else if req.FormValue("grant_type") == "refresh_token" {
+			if req.FormValue("client_id") == "" || req.FormValue("refresh_token") == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
-				originalRefreshToken := refreshToken
+
+				clients := p.provider.Data().Clients[req.FormValue("client_id")]
+				for _, clientConfigs := range clients {
+					// making a copy for request scope
+					config := make(map[string]string)
+					for key, value := range clientConfigs {
+						config[key] = value
+					}
+
+					configClientId, clientIdOk := config["client_id"]
+					_, clientSecretOk := config["client_secret"]
+					_, clientSecretFileOk := config["client_secret_file"]
+
+					if clientIdOk && (clientSecretOk || clientSecretFileOk) &&
+						configClientId != "" && configClientId == req.FormValue("client_id") {
+						middlewareapi.GetRequestScope(req).RequestedClientConfig = config
+						middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
+					}
+				}
+
+				originalRefreshToken := req.FormValue("refresh_token")
 
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval,
 					true)
@@ -930,13 +911,14 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 
 	clientId, err := p.getClientID(req)
 	if err != nil {
-		logger.Errorf("Error obtaining client ID: %v", err)
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
-		return
+		logger.Errorf("Error obtaining client ID from request: %v", err)
+		logger.Printf("Setting default client ID")
+		clientId = p.provider.Data().ClientID
 	}
 
 	callbackRedirect := p.getOAuthRedirectURI(req)
 	loginURL := p.provider.GetLoginURL(
+		req.Context(),
 		callbackRedirect,
 		encodeState(csrf.HashOAuthState(), appRedirect, clientId),
 		csrf.HashOIDCNonce(),
@@ -973,6 +955,26 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	nonce, appRedirect, clientId, decodeErr := decodeState(req)
+
+	/* clients := p.provider.Data().Clients[clientId]
+	for _, clientConfigs := range clients {
+		// making a copy for request scope
+		config := make(map[string]string)
+		for key, value := range clientConfigs {
+			config[key] = value
+		}
+
+		configClientId, clientIdOk := config["client_id"]
+		if clientIdOk && configClientId != "" && configClientId == clientId {
+			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
+			break
+		}
+	} */
+	if !p.setRequestedClientConfig(req, clientId) {
+		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	session, err := p.redeemCode(req, clientId)
 	if err != nil {
@@ -1050,6 +1052,28 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (p *OAuthProxy) setRequestedClientConfig(req *http.Request, clientId string) bool {
+	clients := p.provider.Data().Clients[clientId]
+	if len(clients) == 0 {
+		return true
+	}
+	for _, clientConfigs := range clients {
+		// making a copy for request scope
+		config := make(map[string]string)
+		for key, value := range clientConfigs {
+			config[key] = value
+		}
+
+		configClientId, clientIdOk := config["client_id"]
+		if clientIdOk && configClientId != "" && configClientId == clientId {
+			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
+			middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
+			return true
+		}
+	}
+	return false
+}
+
 func (p *OAuthProxy) getClientID(req *http.Request) (string, error) {
 	clientID := req.Form.Get("client_id")
 	if clientID == "" {
@@ -1070,8 +1094,7 @@ func (p *OAuthProxy) redeemCode(req *http.Request, clientId string) (*sessionsap
 
 	redirectURI := p.getOAuthRedirectURI(req)
 	ctx := req.Context()
-	ctxNew := context.WithValue(ctx, constants.ContextClientId, clientId)
-	s, err := p.provider.Redeem(ctxNew, redirectURI, code)
+	s, err := p.provider.Redeem(ctx, redirectURI, code)
 	if err != nil {
 		return nil, err
 	}

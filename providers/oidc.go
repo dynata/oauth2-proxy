@@ -33,12 +33,12 @@ func NewOIDCProvider(p *ProviderData) *OIDCProvider {
 var _ Provider = (*OIDCProvider)(nil)
 
 // GetLoginURL makes the LoginURL with optional nonce support
-func (p *OIDCProvider) GetLoginURL(redirectURI, state, nonce string) string {
+func (p *OIDCProvider) GetLoginURL(ctx context.Context, redirectURI, state, nonce string) string {
 	extraParams := url.Values{}
 	if !p.SkipNonce {
 		extraParams.Add("nonce", nonce)
 	}
-	loginURL := makeLoginURL(p.Data(), redirectURI, state, extraParams)
+	loginURL := makeLoginURL(ctx, p.Data(), redirectURI, state, extraParams)
 	return loginURL.String()
 }
 

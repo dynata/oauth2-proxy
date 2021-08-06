@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"golang.org/x/oauth2"
@@ -31,9 +32,9 @@ type ProviderData struct {
 	ValidateURL       *url.URL
 	// Auth request params & related, see
 	//https://openid.net/specs/openid-connect-basic-1_0.html#rfc.section.2.1.1.1
-	AcrValues        string
-	ApprovalPrompt   string // NOTE: Renamed to "prompt" in OAuth2
-	Clients          interface{}
+	AcrValues      string
+	ApprovalPrompt string // NOTE: Renamed to "prompt" in OAuth2
+	// SelectedClientData map[string]string // Data field of felected client from within multiple clients
 	ClientID         string
 	ClientSecret     string
 	ClientSecretFile string
@@ -50,7 +51,8 @@ type ProviderData struct {
 	// any provider can set to consume
 	AllowedGroups map[string]struct{}
 
-	DynamicClientConfig map[string][]string
+	Clients          map[string][]map[string]string // Multiple clients related data field
+	ClientsVerifiers map[string]*oidc.IDTokenVerifier
 }
 
 // Data returns the ProviderData
@@ -135,10 +137,17 @@ func (p *ProviderData) verifyIDToken(ctx context.Context, token *oauth2.Token) (
 	if strings.TrimSpace(rawIDToken) == "" {
 		return nil, ErrMissingIDToken
 	}
-	if p.Verifier == nil {
+
+	verifier := p.Verifier
+	if verifier == nil {
 		return nil, ErrMissingOIDCVerifier
 	}
-	return p.Verifier.Verify(ctx, rawIDToken)
+
+	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
+	if requestedClientVerifier != nil {
+		verifier = requestedClientVerifier
+	}
+	return verifier.Verify(ctx, rawIDToken)
 }
 
 // buildSessionFromClaims uses IDToken claims to populate a fresh SessionState

@@ -59,12 +59,12 @@ func (p *ADFSProvider) Configure(skipScope bool) {
 
 // GetLoginURL Override to double encode the state parameter. If not query params are lost
 // More info here: https://docs.microsoft.com/en-us/powerapps/maker/portals/configure/configure-saml2-settings
-func (p *ADFSProvider) GetLoginURL(redirectURI, state, nonce string) string {
+func (p *ADFSProvider) GetLoginURL(ctx context.Context, redirectURI, state, nonce string) string {
 	extraParams := url.Values{}
 	if !p.SkipNonce {
 		extraParams.Add("nonce", nonce)
 	}
-	loginURL := makeLoginURL(p.Data(), redirectURI, url.QueryEscape(state), extraParams)
+	loginURL := makeLoginURL(ctx, p.Data(), redirectURI, url.QueryEscape(state), extraParams)
 	if p.SkipScope {
 		q := loginURL.Query()
 		q.Del("scope")

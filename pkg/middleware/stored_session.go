@@ -12,6 +12,7 @@ import (
 	middlewareapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	sessionsapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/providers"
 )
 
 // StoredSessionLoaderOptions cotnains all of the requirements to construct
@@ -23,6 +24,8 @@ type StoredSessionLoaderOptions struct {
 
 	// How often should sessions be refreshed
 	RefreshPeriod time.Duration
+
+	ProviderData *providers.ProviderData
 
 	// Provider based sesssion refreshing
 	RefreshSessionIfNeeded func(context.Context, *sessionsapi.SessionState) (bool, error)
@@ -37,6 +40,7 @@ func GenerateSessionLoader(opts *StoredSessionLoaderOptions) *StoredSessionLoade
 	ss := &StoredSessionLoader{
 		store:                              opts.SessionStore,
 		refreshPeriod:                      opts.RefreshPeriod,
+		providerData:                       opts.ProviderData,
 		refreshSessionWithProviderIfNeeded: opts.RefreshSessionIfNeeded,
 		validateSessionState:               opts.ValidateSessionState,
 	}
@@ -51,6 +55,7 @@ func NewStoredSessionLoader(opts *StoredSessionLoaderOptions) alice.Constructor 
 	ss := &StoredSessionLoader{
 		store:                              opts.SessionStore,
 		refreshPeriod:                      opts.RefreshPeriod,
+		providerData:                       opts.ProviderData,
 		refreshSessionWithProviderIfNeeded: opts.RefreshSessionIfNeeded,
 		validateSessionState:               opts.ValidateSessionState,
 	}
@@ -66,6 +71,7 @@ func NewStoredSessionLoaderFromInstance(ss *StoredSessionLoader) alice.Construct
 type StoredSessionLoader struct {
 	store                              sessionsapi.SessionStore
 	refreshPeriod                      time.Duration
+	providerData                       *providers.ProviderData
 	refreshSessionWithProviderIfNeeded func(context.Context, *sessionsapi.SessionState) (bool, error)
 	validateSessionState               func(context.Context, *sessionsapi.SessionState) bool
 }
@@ -74,6 +80,7 @@ func (s *StoredSessionLoader) GetStoredSessionLoader(opts *StoredSessionLoaderOp
 	ss := &StoredSessionLoader{
 		store:                              opts.SessionStore,
 		refreshPeriod:                      opts.RefreshPeriod,
+		providerData:                       opts.ProviderData,
 		refreshSessionWithProviderIfNeeded: opts.RefreshSessionIfNeeded,
 		validateSessionState:               opts.ValidateSessionState,
 	}
@@ -127,6 +134,11 @@ func (s *StoredSessionLoader) getValidatedSession(rw http.ResponseWriter, req *h
 	ctx := context.WithValue(req.Context(), constants.ContextOriginalRefreshToken,
 		originalRefreshToken)
 	req = req.Clone(ctx)
+
+	if s.providerData != nil && session.ClientId != "" {
+		clientId := session.ClientId
+		middlewareapi.GetRequestScope(req).RequestedClientVerifier = s.providerData.ClientsVerifiers[clientId]
+	}
 
 	err = s.refreshSessionIfNeeded(rw, req, session)
 	if err != nil {

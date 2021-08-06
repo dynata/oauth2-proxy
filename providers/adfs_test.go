@@ -151,7 +151,7 @@ var _ = Describe("ADFS Provider Tests", func() {
 			})
 			p.SkipScope = true
 
-			result := p.GetLoginURL("https://example.com/adfs/oauth2/", "", "")
+			result := p.GetLoginURL(nil, "https://example.com/adfs/oauth2/", "", "")
 			Expect(result).NotTo(ContainSubstring("scope="))
 		})
 	})
@@ -172,7 +172,7 @@ var _ = Describe("ADFS Provider Tests", func() {
 				})
 
 				Expect(p.Data().Scope).To(Equal(in.expectedScope))
-				result := p.GetLoginURL("https://example.com/adfs/oauth2/", "", "")
+				result := p.GetLoginURL(nil, "https://example.com/adfs/oauth2/", "", "")
 				Expect(result).To(ContainSubstring("scope=" + url.QueryEscape(in.expectedScope)))
 			},
 			Entry("should add slash", scopeTableInput{

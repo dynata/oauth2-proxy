@@ -34,6 +34,7 @@ type SessionState struct {
 
 	Lock Lock `msgpack:"-"`
 
+	ClientId         string  `msgpack:"ci,omitempty"`
 	SessionState     string  `msgpack:"ss,omitempty"`
 	Scope            string  `msgpack:"sc,omitempty"`
 	TokenType        string  `msgpack:"tt,omitempty"`

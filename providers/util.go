@@ -1,12 +1,14 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 
 	"github.com/bitly/go-simplejson"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"golang.org/x/oauth2"
 )
 
@@ -35,7 +37,7 @@ func makeOIDCHeader(accessToken string) http.Header {
 	return makeAuthorizationHeader(tokenTypeBearer, accessToken, extraHeaders)
 }
 
-func makeLoginURL(p *ProviderData, redirectURI, state string, extraParams url.Values) url.URL {
+func makeLoginURL(ctx context.Context, p *ProviderData, redirectURI, state string, extraParams url.Values) url.URL {
 	a := *p.LoginURL
 
 	clientId := p.ClientID
@@ -44,14 +46,14 @@ func makeLoginURL(p *ProviderData, redirectURI, state string, extraParams url.Va
 	approvalPrompt := p.ApprovalPrompt
 	scope := p.Scope
 
-	dynamicClient := p.DynamicClientConfig["dynamic_client"]
-	if len(dynamicClient) > 3 {
-		clientId = dynamicClient[0]
-		if dynamicClient[2] != "" { //kc_idp_hint
-			extraParams.Add("kc_idp_hint", dynamicClient[2])
+	if ctx != nil {
+		requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
+		if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
+			clientId = v
 		}
-		scope = dynamicClient[4]
-		// redirectURI = dynamicClient[5] //All client must redirect to same URL defined in config
+		if v, ok := requestedClientConfig["redirect_uri"]; ok && v != redirectURI {
+			redirectURI = v
+		}
 	}
 
 	params, _ := url.ParseQuery(a.RawQuery)

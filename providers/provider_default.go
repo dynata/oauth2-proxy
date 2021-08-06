@@ -34,9 +34,9 @@ var (
 )
 
 // GetLoginURL with typical oauth parameters
-func (p *ProviderData) GetLoginURL(redirectURI, state, _ string) string {
+func (p *ProviderData) GetLoginURL(ctx context.Context, redirectURI, state, _ string) string {
 	extraParams := url.Values{}
-	loginURL := makeLoginURL(p, redirectURI, state, extraParams)
+	loginURL := makeLoginURL(ctx, p, redirectURI, state, extraParams)
 	return loginURL.String()
 }
 

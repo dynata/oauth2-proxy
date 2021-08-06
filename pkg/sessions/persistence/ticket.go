@@ -138,26 +138,6 @@ func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ti
 	return decodeTicket(string(val), cookieOpts)
 }
 
-/* func saveRefreshToken(encodedTicket string, refreshToken string, saver saveFunc) error {
-	encodedRefreshToken := base64.RawURLEncoding.EncodeToString([]byte(refreshToken))
-
-	if encodedRefreshToken == "" {
-		return fmt.Errorf("failed to encode refresh token for storing as a key")
-	}
-
-	refreshTokenExpiry, err := time.ParseDuration("720h") // 30 days
-	if err != nil {
-		return err
-	}
-
-	err = saver(string(encodedRefreshToken), []byte(encodedTicket), refreshTokenExpiry)
-	if err != nil {
-		return err
-	}
-
-	return nil
-} */
-
 // saveSession encodes the SessionState with the ticket's secret and persists
 // it to disk via the passed saveFunc.
 func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, ticket_uuid string, saver saveFunc) error {
@@ -183,9 +163,6 @@ func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, tick
 		if err != nil {
 			return err
 		}
-		/* if s.RefreshToken != "" {
-			saveRefreshToken(encodedTicket, s.RefreshToken, saver)
-		} */
 	}
 	if !IsOauthMockRequestCallValue || originalRefreshTokenStr == "" {
 		// update session incase of not an Oauth Mock request or

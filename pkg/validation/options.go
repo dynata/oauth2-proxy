@@ -121,6 +121,20 @@ func Validate(o *options.Options) error {
 				ClientID:        o.Providers[0].ClientID,
 				SkipIssuerCheck: o.Providers[0].OIDCConfig.InsecureSkipIssuerVerification,
 			}))
+
+			configListMap := o.Providers[0].Clients
+			verifiers := make(map[string]*oidc.IDTokenVerifier)
+			for _, configList := range configListMap {
+				verifiers := make(map[string]*oidc.IDTokenVerifier)
+				for _, config := range configList {
+					verifier := oidc.NewVerifier(o.Providers[0].OIDCConfig.IssuerURL, keySet, &oidc.Config{
+						ClientID:        config["client_id"],
+						SkipIssuerCheck: o.Providers[0].OIDCConfig.InsecureSkipIssuerVerification,
+					})
+					verifiers[config["client_id"]] = verifier
+				}
+			}
+			o.SetOIDCClientsVerifiers(verifiers)
 		} else {
 			// Configure discoverable provider data.
 			provider, err := oidc.NewProvider(ctx, o.Providers[0].OIDCConfig.IssuerURL)
@@ -131,6 +145,19 @@ func Validate(o *options.Options) error {
 				ClientID:        o.Providers[0].ClientID,
 				SkipIssuerCheck: o.Providers[0].OIDCConfig.InsecureSkipIssuerVerification,
 			}))
+
+			verifiers := make(map[string]*oidc.IDTokenVerifier)
+			configListMap := o.Providers[0].Clients
+			for _, configList := range configListMap {
+				for _, config := range configList {
+					verifier := provider.Verifier(&oidc.Config{
+						ClientID:        config["client_id"],
+						SkipIssuerCheck: o.Providers[0].OIDCConfig.InsecureSkipIssuerVerification,
+					})
+					verifiers[config["client_id"]] = verifier
+				}
+			}
+			o.SetOIDCClientsVerifiers(verifiers)
 
 			o.Providers[0].LoginURL = provider.Endpoint().AuthURL
 			o.Providers[0].RedeemURL = provider.Endpoint().TokenURL
@@ -217,6 +244,7 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 	p.EmailClaim = o.Providers[0].OIDCConfig.EmailClaim
 	p.GroupsClaim = o.Providers[0].OIDCConfig.GroupsClaim
 	p.Verifier = o.GetOIDCVerifier()
+	p.ClientsVerifiers = o.GetOIDCClientsVerifiers()
 
 	// TODO (@NickMeves) - Remove This
 	// Backwards Compatibility for Deprecated UserIDClaim option
@@ -226,9 +254,6 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 	}
 
 	p.SetAllowedGroups(o.Providers[0].AllowedGroups)
-
-	p.DynamicClientConfig = make(map[string][]string)
-	p.DynamicClientConfig["dynamic_client"] = []string{"oauth2-proxy-local", "8357212c-a082-43ac-bb99-69e16ec8c321", "google"} //0:client_id,1:client_secret,2:kc_idp_hint
 
 	provider := providers.New(o.Providers[0].Type, p)
 	if provider == nil {

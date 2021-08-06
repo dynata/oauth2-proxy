@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/coreos/go-oidc"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 )
 
@@ -41,11 +42,24 @@ type RequestScope struct {
 
 	// Upstream tracks which upstream was used for this request
 	Upstream string
+
+	RequestedClientConfig map[string]string
+
+	RequestedClientVerifier *oidc.IDTokenVerifier
 }
 
 // GetRequestScope returns the current request scope from the given request
 func GetRequestScope(req *http.Request) *RequestScope {
 	scope := req.Context().Value(RequestScopeKey)
+	if scope == nil {
+		return nil
+	}
+
+	return scope.(*RequestScope)
+}
+
+func GetRequestScopeFromContext(ctx context.Context) *RequestScope {
+	scope := ctx.Value(RequestScopeKey)
 	if scope == nil {
 		return nil
 	}

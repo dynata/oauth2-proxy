@@ -11,7 +11,7 @@ type Provider interface {
 	Data() *ProviderData
 	// Deprecated: Migrate to EnrichSession
 	GetEmailAddress(ctx context.Context, s *sessions.SessionState) (string, error)
-	GetLoginURL(redirectURI, state, nonce string) string
+	GetLoginURL(ctx context.Context, redirectURI, state, nonce string) string
 	Redeem(ctx context.Context, redirectURI, code string) (*sessions.SessionState, error)
 	EnrichSession(ctx context.Context, s *sessions.SessionState) error
 	Authorize(ctx context.Context, s *sessions.SessionState) (bool, error)

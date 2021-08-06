@@ -3,8 +3,7 @@ package constants
 type AuthServerContextConstant int
 
 const (
-	ContextClientId AuthServerContextConstant = iota
-	ContextTokenAuthPath
+	ContextTokenAuthPath = iota
 	ContextSkipRefreshInterval
 	ContextOriginalRefreshToken
 	ContextIsMockOauthTokenRequestCall
