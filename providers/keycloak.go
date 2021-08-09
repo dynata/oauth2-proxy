@@ -353,7 +353,14 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 
 // CreateSessionFromToken converts Bearer IDTokens into sessions
 func (p *KeycloakProvider) CreateSessionFromToken(ctx context.Context, token string) (*sessions.SessionState, error) {
-	idToken, err := p.Verifier.Verify(ctx, token)
+	verifier := p.Verifier
+
+	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
+	if requestedClientVerifier != nil {
+		verifier = requestedClientVerifier
+	}
+
+	idToken, err := verifier.Verify(ctx, token)
 	if err != nil {
 		return nil, err
 	}
