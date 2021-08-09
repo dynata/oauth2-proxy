@@ -33,6 +33,20 @@ services:
     depends_on:
       - oauth2-proxy
       - keycloak
+  upstream-app:
+    container_name: upstream-app
+    image: php:7.2-apache
+    hostname: upstream-app
+    ports:
+      - 8000:80/tcp
+    volumes:
+      - "./upstream:/var/www/html"
+    networks:
+      oauth2-proxy:
+        aliases:
+          - upstream-app.localhost
+    depends_on:
+      - oauth2-proxy
   oauth2-proxy:
     container_name: oauth2-proxy
     image: quay.io/oauth2-proxy/oauth2-proxy:debug
@@ -70,16 +84,13 @@ services:
       KEYCLOAK_USER: admin@example.com
       KEYCLOAK_PASSWORD: password
     networks:
-      keycloak:
+      oauth2-proxy:
         aliases:
           - keycloak.localhost
     ports:
       - 9080:9080/tcp
 
 networks:
-  keycloak:
-    external:
-      name: pe
   oauth2-proxy:
     external:
       name: pe
