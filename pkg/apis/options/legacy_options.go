@@ -617,8 +617,7 @@ func (l LegacyServer) convert() (Server, Server) {
 func (l *LegacyProvider) convert() (Providers, error) {
 	providers := Providers{}
 
-	clients := make(map[string][]map[string]string)
-
+	clients := map[string][]map[string]string{}
 	if l.Clients != nil {
 		for _, config := range l.Clients {
 			clientId := config["client_id"]
@@ -626,9 +625,7 @@ func (l *LegacyProvider) convert() (Providers, error) {
 				return nil, errors.New("failed to set multiple clients configuration, provider is missing")
 			}
 			if provider := config["provider"]; provider == l.ProviderType {
-				clients[clientId] = append(clients[clientId], config)
-			} else {
-				continue
+				clients[clientId] = []map[string]string{config}
 			}
 		}
 	}

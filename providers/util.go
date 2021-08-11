@@ -48,11 +48,27 @@ func makeLoginURL(ctx context.Context, p *ProviderData, redirectURI, state strin
 
 	if ctx != nil {
 		requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
-		if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
-			clientId = v
-		}
-		if v, ok := requestedClientConfig["redirect_uri"]; ok && v != redirectURI {
-			redirectURI = v
+
+		for k, v := range requestedClientConfig {
+			if v == "" {
+				continue
+			}
+			switch k {
+			case "client_id":
+				clientId = v
+			case "redirect_uri":
+				redirectURI = v
+			case "acr_values":
+				acrValues = v
+			case "prompt":
+				prompt = v
+			case "approval_prompt":
+				approvalPrompt = v
+			case "scope":
+				scope = v
+			case "kc_idp_hint":
+				extraParams.Add(k, v)
+			}
 		}
 	}
 

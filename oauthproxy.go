@@ -603,18 +603,16 @@ func (p *OAuthProxy) isTrustedIP(req *http.Request) bool {
 	return p.trustedIPs.Has(remoteAddr)
 }
 
-// Mock OIDC login API
-func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request) {
-
+func modifyRequestForMockLoginAPI(providerData *providers.ProviderData, req *http.Request) *http.Request {
 	if req.Method == http.MethodGet {
 		if err := req.ParseForm(); err != nil {
 			logger.Errorf("Error parsing form data: %v", err)
-			return
+			return req
 		}
 
 		req.Header.Add("X-Auth-Request-Redirect", req.FormValue("redirect_uri"))
 
-		clients := p.provider.Data().Clients[req.FormValue("client_id")]
+		clients := providerData.Clients[req.FormValue("client_id")]
 		for _, clientConfigs := range clients {
 			// making a copy for request scope
 			config := make(map[string]string)
@@ -629,7 +627,7 @@ func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request
 
 			if clientIdOk && redirectUriOk && (clientSecretOk || clientSecretFileOk) &&
 				configClientId != "" && configClientId == req.FormValue("client_id") &&
-				configRedirectUri != "" {
+				req.FormValue("response_type") == "code" && configRedirectUri != "" {
 
 				if req.FormValue("scope") != "" {
 					config["scope"] = req.FormValue("scope")
@@ -649,13 +647,17 @@ func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request
 				}
 
 				middlewareapi.GetRequestScope(req).RequestedClientConfig = config
-				middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
+				middlewareapi.GetRequestScope(req).RequestedClientVerifier = providerData.ClientsVerifiers[configClientId]
 			}
 		}
-
-		p.OAuthStart(rw, req)
 	}
-	rw.WriteHeader(http.StatusOK)
+	return req
+}
+
+// Mock OIDC login API
+func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request) {
+	modifyRequestForMockLoginAPI(p.provider.Data(), req)
+	p.OAuthStart(rw, req)
 }
 
 // Mimicks Refresh Token API
