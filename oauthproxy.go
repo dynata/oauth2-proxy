@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/justinas/alice"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	ipapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/ip"
@@ -932,11 +934,21 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		clientId = p.provider.Data().ClientID
 	}
 
+	clientIdBytes := []byte(clientId)
+
+	// Hashing the clientIdBytes with the default cost of 10
+	hashedClientIdBytes, err := bcrypt.GenerateFromPassword(clientIdBytes, bcrypt.DefaultCost)
+	if err != nil {
+		logger.Errorf("Error processing client id: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	callbackRedirect := p.getOAuthRedirectURI(req)
 	loginURL := p.provider.GetLoginURL(
 		req.Context(),
 		callbackRedirect,
-		encodeState(csrf.HashOAuthState(), appRedirect, clientId),
+		encodeState(csrf.HashOAuthState(), appRedirect, string(hashedClientIdBytes)),
 		csrf.HashOIDCNonce(),
 	)
 
@@ -970,7 +982,14 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	nonce, appRedirect, clientId, decodeErr := decodeState(req)
+	nonce, appRedirect, hashedClientId, decodeErr := decodeState(req)
+
+	clientId := p.getValidatedClientId(hashedClientId, req)
+	if clientId == "" {
+		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	if !p.setRequestedClientConfig(req, clientId) {
 		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
@@ -1420,6 +1439,22 @@ func (p *OAuthProxy) getAuthenticatedSession(rw http.ResponseWriter, req *http.R
 	return session, nil
 }
 
+func (p *OAuthProxy) getValidatedClientId(hashedClientId string, req *http.Request) string {
+	clientId := p.provider.Data().ClientID
+	err := bcrypt.CompareHashAndPassword([]byte(hashedClientId), []byte(clientId))
+	if err == nil {
+		return clientId
+	} else {
+		for clientId := range p.provider.Data().Clients {
+			err := bcrypt.CompareHashAndPassword([]byte(hashedClientId), []byte(clientId))
+			if err == nil {
+				return clientId
+			}
+		}
+	}
+	return ""
+}
+
 // authOnlyAuthorize handles special authorization logic that is only done
 // on the AuthOnly endpoint for use with Nginx subrequest architectures.
 //
@@ -1471,7 +1506,8 @@ func extractAllowedGroups(req *http.Request) map[string]struct{} {
 // original application redirect, requested client id
 func encodeState(nonce string, redirect string, clientId string) string {
 	endodedRedirectURL := b64.RawURLEncoding.EncodeToString([]byte(redirect))
-	plain := fmt.Sprintf("%v:%v:%v", nonce, endodedRedirectURL, clientId)
+	endodedClientId := b64.RawURLEncoding.EncodeToString([]byte(clientId))
+	plain := fmt.Sprintf("%v:%v:%v", nonce, endodedRedirectURL, endodedClientId)
 	base64Plain := b64.RawURLEncoding.EncodeToString([]byte(plain))
 	return base64Plain
 }
@@ -1490,8 +1526,11 @@ func decodeState(req *http.Request) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", err
 	}
-	clientId := state[2]
-	return nonce, string(decodedRedirectURL), clientId, nil
+	decodedClientId, err := b64.RawURLEncoding.DecodeString(state[2])
+	if err != nil {
+		return "", "", "", err
+	}
+	return nonce, string(decodedRedirectURL), string(decodedClientId), nil
 }
 
 // addHeadersForProxying adds the appropriate headers the request / response for proxying
