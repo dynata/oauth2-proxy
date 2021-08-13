@@ -30,6 +30,7 @@ type ProviderData struct {
 	ProfileURL        *url.URL
 	ProtectedResource *url.URL
 	ValidateURL       *url.URL
+	LogoutURL         *url.URL
 	// Auth request params & related, see
 	//https://openid.net/specs/openid-connect-basic-1_0.html#rfc.section.2.1.1.1
 	AcrValues      string
@@ -72,6 +73,20 @@ func (p *ProviderData) GetClientSecret() (clientSecret string, err error) {
 	return string(fileClientSecret), nil
 }
 
+func GetClientSecret(clientSecretString, clientSecretFilePath string) (clientSecret string, err error) {
+	if clientSecretString != "" || clientSecretFilePath == "" {
+		return clientSecretString, nil
+	}
+
+	// Getting ClientSecret can fail in runtime so we need to report it without returning the file name to the user
+	fileClientSecret, err := ioutil.ReadFile(clientSecretFilePath)
+	if err != nil {
+		logger.Errorf("error reading client secret file %s: %s", clientSecretFilePath, err)
+		return "", errors.New("could not read client secret file")
+	}
+	return string(fileClientSecret), nil
+}
+
 // SetAllowedGroups organizes a group list into the AllowedGroups map
 // to be consumed by Authorize implementations
 func (p *ProviderData) SetAllowedGroups(groups []string) {
@@ -87,6 +102,7 @@ type providerDefaults struct {
 	redeemURL   *url.URL
 	profileURL  *url.URL
 	validateURL *url.URL
+	logoutURL   *url.URL
 	scope       string
 }
 
@@ -96,7 +112,7 @@ func (p *ProviderData) setProviderDefaults(defaults providerDefaults) {
 	p.RedeemURL = defaultURL(p.RedeemURL, defaults.redeemURL)
 	p.ProfileURL = defaultURL(p.ProfileURL, defaults.profileURL)
 	p.ValidateURL = defaultURL(p.ValidateURL, defaults.validateURL)
-
+	p.LogoutURL = defaultURL(p.LogoutURL, defaults.logoutURL)
 	if p.Scope == "" {
 		p.Scope = defaults.scope
 	}

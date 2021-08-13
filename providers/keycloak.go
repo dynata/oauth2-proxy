@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -63,6 +64,11 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 			Host:   p.RedeemURL.Host,
 			Path:   p.RedeemURL.Path[:lastInd] + "/userinfo",
 		}
+		keycloakDefaultLogoutURL := &url.URL{
+			Scheme: p.RedeemURL.Scheme,
+			Host:   p.RedeemURL.Host,
+			Path:   p.RedeemURL.Path[:lastInd] + "/logout",
+		}
 		p.setProviderDefaults(providerDefaults{
 			// name:        keycloakProviderName,
 			// loginURL:    keycloakDefaultLoginURL,
@@ -70,6 +76,7 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 			profileURL: keycloakDefaultProfileURL,
 			// validateURL: keycloakDefaultValidateURL,
 			// scope:       keycloakDefaultScope,
+			logoutURL: keycloakDefaultLogoutURL,
 		})
 	}
 	return &KeycloakProvider{
@@ -429,4 +436,55 @@ func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Toke
 	}
 
 	return ss, nil
+}
+
+func (p *KeycloakProvider) Logout(ctx context.Context, s *sessions.SessionState) (bool, error) {
+	providerData := p.Data()
+
+	loginURL := providerData.LogoutURL
+	if s != nil && loginURL != nil && loginURL.String() != "" {
+		clientId := providerData.ClientID
+		clientSecret, err := providerData.GetClientSecret()
+
+		if err != nil {
+			return false, err
+		}
+
+		if s.ClientId != "" {
+			clientId = s.ClientId
+		}
+
+		configMapList := providerData.Clients[clientId]
+		for _, config := range configMapList {
+			if config["client_id"] == clientId {
+				clientSecret, err = GetClientSecret(config["client_secret"], config["client_secret_file"])
+				if err != nil {
+					return false, err
+				}
+			}
+		}
+
+		httpClient := http.Client{}
+
+		form := url.Values{}
+		form.Add("client_id", clientId)
+		form.Add("client_secret", clientSecret)
+		form.Add("refresh_token", s.RefreshToken)
+
+		newRequest, err := http.NewRequest("POST", providerData.LogoutURL.String(), strings.NewReader(form.Encode()))
+		newRequest.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+		if err != nil {
+			return false, err
+		}
+
+		resp, err := httpClient.Do(newRequest)
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			logger.Print("Logged out from provider")
+			return true, nil
+		}
+	}
+	return false, nil
 }

@@ -139,3 +139,7 @@ func (p *ProviderData) CreateSessionFromToken(ctx context.Context, token string)
 	}
 	return nil, ErrNotImplemented
 }
+
+func (p *ProviderData) Logout(_ context.Context, _ *sessions.SessionState) (bool, error) {
+	return false, nil
+}

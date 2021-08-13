@@ -513,7 +513,6 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath,
 		p.provider.Data().RedeemURL.Path)
-
 	req = req.Clone(ctx)
 
 	switch path := req.URL.Path; {
@@ -534,9 +533,11 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	case path == p.UserInfoPath:
 		p.UserInfo(rw, req)
 	case path == p.provider.Data().LoginURL.Path: // Authorization Endpoint
-		p.ProxyLoginRequest(rw, req)
+		p.MockLoginRequest(rw, req)
 	case path == p.provider.Data().RedeemURL.Path: // Token Endpoint
-		p.ProxyTokenRequest(rw, req)
+		p.MockTokenRequest(rw, req)
+	case path == p.provider.Data().LogoutURL.Path: // Logout Endpoint
+		p.MockLogoutRequest(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -655,13 +656,13 @@ func modifyRequestForMockLoginAPI(providerData *providers.ProviderData, req *htt
 }
 
 // Mock OIDC login API
-func (p *OAuthProxy) ProxyLoginRequest(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request) {
 	modifyRequestForMockLoginAPI(p.provider.Data(), req)
 	p.OAuthStart(rw, req)
 }
 
 // Mimicks Refresh Token API
-func (p *OAuthProxy) ProxyTokenRequest(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request) {
 	prepareNoCache(rw)
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -876,6 +877,19 @@ func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request) {
+	req.Header.Add("X-Auth-Request-Redirect", req.FormValue("redirect_uri"))
+	ss, err := p.getAuthenticatedSession(rw, req)
+	if ss != nil && err == nil {
+		_, err = p.provider.Logout(req.Context(), ss)
+		if err != nil {
+			p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	p.SignOut(rw, req)
+}
+
 // SignOut sends a response to clear the authentication cookie
 func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
 	redirect, err := p.getAppRedirect(req)
@@ -958,20 +972,6 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 
 	nonce, appRedirect, clientId, decodeErr := decodeState(req)
 
-	/* clients := p.provider.Data().Clients[clientId]
-	for _, clientConfigs := range clients {
-		// making a copy for request scope
-		config := make(map[string]string)
-		for key, value := range clientConfigs {
-			config[key] = value
-		}
-
-		configClientId, clientIdOk := config["client_id"]
-		if clientIdOk && configClientId != "" && configClientId == clientId {
-			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
-			break
-		}
-	} */
 	if !p.setRequestedClientConfig(req, clientId) {
 		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
@@ -1467,8 +1467,8 @@ func extractAllowedGroups(req *http.Request) map[string]struct{} {
 	return groups
 }
 
-// encodedState builds the OAuth state param out of our nonce and
-// original application redirect
+// encodedState builds the OAuth state param out of our nonce,
+// original application redirect, requested client id
 func encodeState(nonce string, redirect string, clientId string) string {
 	endodedRedirectURL := b64.RawURLEncoding.EncodeToString([]byte(redirect))
 	plain := fmt.Sprintf("%v:%v:%v", nonce, endodedRedirectURL, clientId)
@@ -1477,7 +1477,7 @@ func encodeState(nonce string, redirect string, clientId string) string {
 }
 
 // decodeState splits the reflected OAuth state response back into
-// the nonce and original application redirect
+// the nonce, original application redirect, requested client id
 func decodeState(req *http.Request) (string, string, string, error) {
 	base64State := req.Form.Get("state")
 	sDec, _ := b64.RawURLEncoding.DecodeString(base64State)

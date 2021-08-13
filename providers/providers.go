@@ -18,6 +18,7 @@ type Provider interface {
 	ValidateSession(ctx context.Context, s *sessions.SessionState) bool
 	RefreshSessionIfNeeded(ctx context.Context, s *sessions.SessionState) (bool, error)
 	CreateSessionFromToken(ctx context.Context, token string) (*sessions.SessionState, error)
+	Logout(ctx context.Context, s *sessions.SessionState) (bool, error)
 }
 
 // New provides a new Provider based on the configured provider string
