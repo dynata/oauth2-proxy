@@ -663,7 +663,7 @@ func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request)
 	p.OAuthStart(rw, req)
 }
 
-// Mimicks Refresh Token API
+// Mimicks Token API
 func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request) {
 	prepareNoCache(rw)
 
@@ -984,9 +984,9 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 
 	nonce, appRedirect, hashedClientId, decodeErr := decodeState(req)
 
-	clientId := p.getValidatedClientId(hashedClientId, req)
-	if clientId == "" {
-		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
+	clientId, err := p.getValidatedClientId(hashedClientId, req)
+	if err != nil {
+		logger.Errorf("Error redeeming code during OAuth2 callback", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1439,20 +1439,21 @@ func (p *OAuthProxy) getAuthenticatedSession(rw http.ResponseWriter, req *http.R
 	return session, nil
 }
 
-func (p *OAuthProxy) getValidatedClientId(hashedClientId string, req *http.Request) string {
-	clientId := p.provider.Data().ClientID
-	err := bcrypt.CompareHashAndPassword([]byte(hashedClientId), []byte(clientId))
-	if err == nil {
-		return clientId
-	} else {
-		for clientId := range p.provider.Data().Clients {
-			err := bcrypt.CompareHashAndPassword([]byte(hashedClientId), []byte(clientId))
-			if err == nil {
-				return clientId
-			}
+func (p *OAuthProxy) getValidatedClientId(hashedClientId string, req *http.Request) (string, error) {
+	clients := []string{p.provider.Data().ClientID}
+	for clientId := range p.provider.Data().Clients {
+		clients = append(clients, clientId)
+	}
+
+	for index := range clients {
+		clientId := clients[index]
+		err := bcrypt.CompareHashAndPassword([]byte(hashedClientId), []byte(clientId))
+		if err == nil {
+			return clientId, err
 		}
 	}
-	return ""
+	return "", errors.New("provided client ID did not match with any configured client IDs")
+
 }
 
 // authOnlyAuthorize handles special authorization logic that is only done
