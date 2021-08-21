@@ -718,7 +718,6 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 			if req.FormValue("client_id") == "" || req.FormValue("refresh_token") == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
-
 				clients := p.provider.Data().Clients[req.FormValue("client_id")]
 				for _, clientConfigs := range clients {
 					// making a copy for request scope
@@ -741,6 +740,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				originalRefreshToken := req.FormValue("refresh_token")
 
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
+				ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
 				req = req.Clone(ctx)
 
@@ -800,7 +800,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				password := req.FormValue("password")
 
 				session, err := p.provider.PerformPasswordGrant(ctx, username, password)
-				if err != nil {
+				if session == nil || err != nil {
 					logger.Printf("Error refreshing session: %v", err)
 					rw.WriteHeader(http.StatusNotFound)
 					return
