@@ -31,6 +31,7 @@ type ProviderData struct {
 	ProtectedResource *url.URL
 	ValidateURL       *url.URL
 	LogoutURL         *url.URL
+	JwksURL           *url.URL
 	// Auth request params & related, see
 	//https://openid.net/specs/openid-connect-basic-1_0.html#rfc.section.2.1.1.1
 	AcrValues      string
@@ -52,8 +53,8 @@ type ProviderData struct {
 	// any provider can set to consume
 	AllowedGroups map[string]struct{}
 
-	Clients          map[string][]map[string]string // Multiple clients related data field
-	ClientsVerifiers map[string]*oidc.IDTokenVerifier
+	Clients          map[string][]map[string]string   // Multiple clients related data field
+	ClientsVerifiers map[string]*oidc.IDTokenVerifier //Multiple clients verifier
 }
 
 // Data returns the ProviderData
@@ -103,6 +104,7 @@ type providerDefaults struct {
 	profileURL  *url.URL
 	validateURL *url.URL
 	logoutURL   *url.URL
+	jwksURL     *url.URL
 	scope       string
 }
 
@@ -113,6 +115,7 @@ func (p *ProviderData) setProviderDefaults(defaults providerDefaults) {
 	p.ProfileURL = defaultURL(p.ProfileURL, defaults.profileURL)
 	p.ValidateURL = defaultURL(p.ValidateURL, defaults.validateURL)
 	p.LogoutURL = defaultURL(p.LogoutURL, defaults.logoutURL)
+	p.JwksURL = defaultURL(p.JwksURL, defaults.jwksURL)
 	if p.Scope == "" {
 		p.Scope = defaults.scope
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -513,7 +514,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		prepareNoCache(rw)
 	}
 
-	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath,
+	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath{},
 		p.provider.Data().RedeemURL.Path)
 	req = req.Clone(ctx)
 
@@ -540,6 +541,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockTokenRequest(rw, req)
 	case path == p.provider.Data().LogoutURL.Path: // Logout Endpoint
 		p.MockLogoutRequest(rw, req)
+	case path == p.provider.Data().JwksURL.Path: // JwksUri Endpoint
+		p.MockJwksUriRequest(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -669,7 +672,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 	rw.Header().Set("Content-Type", "application/json")
 
-	ctx := context.WithValue(req.Context(), constants.ContextIsMockOauthTokenRequestCall, true)
+	ctx := context.WithValue(req.Context(), constants.ContextIsMockOauthTokenRequestCall{}, true)
 	req = req.Clone(ctx)
 
 	if req.Method == http.MethodPost {
@@ -679,6 +682,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 		}
 
 		if req.FormValue("grant_type") != "authorization_code" &&
+			req.FormValue("grant_type") != "password" &&
 			req.FormValue("grant_type") != "refresh_token" {
 			rw.WriteHeader(http.StatusBadRequest)
 		} else if req.FormValue("grant_type") == "authorization_code" {
@@ -736,10 +740,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				originalRefreshToken := req.FormValue("refresh_token")
 
-				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval,
-					true)
-				ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken,
-					originalRefreshToken)
+				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
 
 				req = req.Clone(ctx)
 
@@ -755,6 +756,58 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
 					IDToken:               session.IDToken,
+					RefreshToken:          session.RefreshToken,
+					RefreshTokenExpiredOn: session.RefreshExpiresIn,
+					AccessToken:           session.AccessToken,
+					ExpireIn:              session.AccessExpiresIn,
+					Scope:                 session.Scope,
+					SessionState:          session.SessionState,
+				}
+
+				err = json.NewEncoder(rw).Encode(tokenResponse)
+				if err != nil {
+					logger.Printf("Error encoding user info: %v", err)
+					rw.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				rw.WriteHeader(http.StatusOK)
+			}
+		} else if req.FormValue("grant_type") == "password" {
+			if req.FormValue("client_id") == "" || req.FormValue("username") == "" ||
+				req.FormValue("password") == "" {
+				rw.WriteHeader(http.StatusBadRequest)
+			} else {
+				clients := p.provider.Data().Clients[req.FormValue("client_id")]
+				for _, clientConfigs := range clients {
+					// making a copy for request scope
+					config := make(map[string]string)
+					for key, value := range clientConfigs {
+						config[key] = value
+					}
+
+					configClientId, clientIdOk := config["client_id"]
+					_, clientSecretOk := config["client_secret"]
+					_, clientSecretFileOk := config["client_secret_file"]
+
+					if clientIdOk && (clientSecretOk || clientSecretFileOk) &&
+						configClientId != "" && configClientId == req.FormValue("client_id") {
+						middlewareapi.GetRequestScope(req).RequestedClientConfig = config
+						middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
+					}
+				}
+
+				username := req.FormValue("username")
+				password := req.FormValue("password")
+
+				session, err := p.provider.PerformPasswordGrant(ctx, username, password)
+				if err != nil {
+					logger.Printf("Error refreshing session: %v", err)
+					rw.WriteHeader(http.StatusNotFound)
+					return
+				}
+
+				tokenResponse := &authServerTokenResponse{
+					TokenType:             session.TokenType,
 					RefreshToken:          session.RefreshToken,
 					RefreshTokenExpiredOn: session.RefreshExpiresIn,
 					AccessToken:           session.AccessToken,
@@ -890,6 +943,30 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		}
 	}
 	p.SignOut(rw, req)
+}
+
+func (p *OAuthProxy) MockJwksUriRequest(rw http.ResponseWriter, req *http.Request) {
+	prepareNoCache(rw)
+
+	c := http.Client{}
+	resp, err := c.Get(p.provider.Data().JwksURL.String())
+
+	if err != nil {
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	rw.Header().Add("Content-Type", "application/json")
+	rw.Write(body)
 }
 
 // SignOut sends a response to clear the authentication cookie

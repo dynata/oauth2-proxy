@@ -131,8 +131,7 @@ func (s *StoredSessionLoader) getValidatedSession(rw http.ResponseWriter, req *h
 	}
 
 	originalRefreshToken := session.RefreshToken
-	ctx := context.WithValue(req.Context(), constants.ContextOriginalRefreshToken,
-		originalRefreshToken)
+	ctx := context.WithValue(req.Context(), constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 	req = req.Clone(ctx)
 
 	if s.providerData != nil && session.ClientId != "" {

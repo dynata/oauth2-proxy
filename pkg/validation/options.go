@@ -98,6 +98,10 @@ func Validate(o *options.Options) error {
 					o.Providers[0].ProfileURL = body.Get("userinfo_endpoint").MustString()
 				}
 
+				if o.Providers[0].LogoutURL == "" {
+					o.Providers[0].LogoutURL = body.Get("end_session_endpoint").MustString()
+				}
+
 				o.Providers[0].OIDCConfig.SkipDiscovery = true
 			}
 		}
@@ -237,6 +241,8 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 	p.RedeemURL, msgs = parseURL(o.Providers[0].RedeemURL, "redeem", msgs)
 	p.ProfileURL, msgs = parseURL(o.Providers[0].ProfileURL, "profile", msgs)
 	p.ValidateURL, msgs = parseURL(o.Providers[0].ValidateURL, "validate", msgs)
+	p.LogoutURL, msgs = parseURL(o.Providers[0].LogoutURL, "logout", msgs)
+	p.JwksURL, msgs = parseURL(o.Providers[0].OIDCConfig.JwksURL, "jwks", msgs)
 	p.ProtectedResource, msgs = parseURL(o.Providers[0].ProtectedResource, "resource", msgs)
 
 	// Make the OIDC options available to all providers that support it

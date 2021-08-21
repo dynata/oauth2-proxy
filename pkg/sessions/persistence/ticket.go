@@ -152,10 +152,10 @@ func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, tick
 
 	encodedTicket := t.encodeTicket()
 
-	originalRefreshToken := ctx.Value(constants.ContextOriginalRefreshToken)
+	originalRefreshToken := ctx.Value(constants.ContextOriginalRefreshToken{})
 	originalRefreshTokenStr, _ := originalRefreshToken.(string)
 
-	IsOauthMockRequestCall := ctx.Value(constants.ContextIsMockOauthTokenRequestCall)
+	IsOauthMockRequestCall := ctx.Value(constants.ContextIsMockOauthTokenRequestCall{})
 	IsOauthMockRequestCallValue, _ := IsOauthMockRequestCall.(bool)
 
 	if originalRefreshTokenStr == "" {

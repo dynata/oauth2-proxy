@@ -24,37 +24,6 @@ type KeycloakProvider struct {
 
 var _ Provider = (*KeycloakProvider)(nil)
 
-const (
-	keycloakProviderName = "Keycloak"
-	keycloakDefaultScope = "api"
-)
-
-var (
-	// Default Login URL for Keycloak.
-	// Pre-parsed URL of https://keycloak.org/oauth/authorize.
-	keycloakDefaultLoginURL = &url.URL{
-		Scheme: "https",
-		Host:   "keycloak.org",
-		Path:   "/oauth/authorize",
-	}
-
-	// Default Redeem URL for Keycloak.
-	// Pre-parsed URL of ttps://keycloak.org/oauth/token.
-	keycloakDefaultRedeemURL = &url.URL{
-		Scheme: "https",
-		Host:   "keycloak.org",
-		Path:   "/oauth/token",
-	}
-
-	// Default Validation URL for Keycloak.
-	// Pre-parsed URL of https://keycloak.org/api/v3/user.
-	keycloakDefaultValidateURL = &url.URL{
-		Scheme: "https",
-		Host:   "keycloak.org",
-		Path:   "/api/v3/user",
-	}
-)
-
 // NewKeycloakProvider creates a KeyCloakProvider using the passed ProviderData
 func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 	if p.ProfileURL == nil || p.ProfileURL.Host == "" {
@@ -69,6 +38,11 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 			Host:   p.RedeemURL.Host,
 			Path:   p.RedeemURL.Path[:lastInd] + "/logout",
 		}
+		keycloakDefaultJwksURL := &url.URL{
+			Scheme: p.RedeemURL.Scheme,
+			Host:   p.RedeemURL.Host,
+			Path:   p.RedeemURL.Path[:lastInd] + "/certs",
+		}
 		p.setProviderDefaults(providerDefaults{
 			// name:        keycloakProviderName,
 			// loginURL:    keycloakDefaultLoginURL,
@@ -77,6 +51,7 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 			// validateURL: keycloakDefaultValidateURL,
 			// scope:       keycloakDefaultScope,
 			logoutURL: keycloakDefaultLogoutURL,
+			jwksURL:   keycloakDefaultJwksURL,
 		})
 	}
 	return &KeycloakProvider{
@@ -165,7 +140,7 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 		return nil, fmt.Errorf("token exchange failed: %v", err)
 	}
 
-	ss, err := p.createSession(ctx, token, false)
+	ss, err := p.createSession(ctx, token, false, false)
 
 	if ss != nil {
 		ss.ClientId = clientId
@@ -262,7 +237,7 @@ func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.Sess
 // RefreshSessionIfNeeded checks if the session has expired and uses the
 // RefreshToken to fetch a new Access Token (and optional ID token) if required
 func (p *KeycloakProvider) RefreshSessionIfNeeded(ctx context.Context, s *sessions.SessionState) (bool, error) {
-	skipRefreshIntervalTest := ctx.Value(constants.ContextSkipRefreshInterval)
+	skipRefreshIntervalTest := ctx.Value(constants.ContextSkipRefreshInterval{})
 	skipRefreshIntervalTestBool, _ := skipRefreshIntervalTest.(bool)
 
 	if s == nil ||
@@ -327,7 +302,7 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 		return fmt.Errorf("failed to get token: %v", err)
 	}
 
-	newSession, err := p.createSession(ctx, token, true)
+	newSession, err := p.createSession(ctx, token, true, false)
 	if err != nil {
 		return fmt.Errorf("unable create new session state from response: %v", err)
 	}
@@ -392,13 +367,13 @@ func (p *KeycloakProvider) CreateSessionFromToken(ctx context.Context, token str
 
 // createSession takes an oauth2.Token and creates a SessionState from it.
 // It alters behavior if called from Redeem vs Refresh
-func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Token, refresh bool) (*sessions.SessionState, error) {
+func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Token, refresh, passwordGrant bool) (*sessions.SessionState, error) {
 	idToken, err := p.verifyIDToken(ctx, token)
 	if err != nil {
 		switch err {
 		case ErrMissingIDToken:
 			// IDToken is mandatory in Redeem but optional in Refresh
-			if !refresh {
+			if !refresh && !passwordGrant {
 				return nil, errors.New("token response did not contain an id_token")
 			}
 		default:
@@ -487,4 +462,41 @@ func (p *KeycloakProvider) Logout(ctx context.Context, s *sessions.SessionState)
 		}
 	}
 	return false, nil
+}
+
+func (p *KeycloakProvider) PerformPasswordGrant(ctx context.Context, username, password string) (*sessions.SessionState, error) {
+	clientSecret, err := p.GetClientSecret()
+	if err != nil {
+		return nil, err
+	}
+
+	clientId := p.ClientID
+
+	requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
+	if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
+		clientId = v
+	}
+	if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
+		clientSecret = v
+	}
+
+	c := oauth2.Config{
+		ClientID:     clientId,
+		ClientSecret: clientSecret,
+		Endpoint: oauth2.Endpoint{
+			TokenURL: p.RedeemURL.String(),
+		},
+	}
+	token, err := c.PasswordCredentialsToken(ctx, username, password)
+	if err != nil {
+		return nil, fmt.Errorf("token exchange failed: %v", err)
+	}
+
+	ss, err := p.createSession(ctx, token, false, true)
+
+	if ss != nil {
+		ss.ClientId = clientId
+	}
+
+	return ss, err
 }

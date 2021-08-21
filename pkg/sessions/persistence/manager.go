@@ -105,7 +105,7 @@ func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
 
 func (m *Manager) decodeMockOauthTokenRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
 	// first mock API processing is done with provided code to get session from
-	mockTokenPath := fmt.Sprintf("%v", req.Context().Value(constants.ContextTokenAuthPath))
+	mockTokenPath := fmt.Sprintf("%v", req.Context().Value(constants.ContextTokenAuthPath{}))
 	encodedUserCode := req.FormValue("code")
 	userRefreshToken := req.FormValue("refresh_token")
 

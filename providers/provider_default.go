@@ -143,3 +143,7 @@ func (p *ProviderData) CreateSessionFromToken(ctx context.Context, token string)
 func (p *ProviderData) Logout(_ context.Context, _ *sessions.SessionState) (bool, error) {
 	return false, nil
 }
+
+func (p *ProviderData) PerformPasswordGrant(ctx context.Context, username, password string) (*sessions.SessionState, error) {
+	return nil, nil
+}
