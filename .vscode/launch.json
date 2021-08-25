@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "debug",
             "program": "${workspaceFolder}",
-            "args": ["--config", "contrib/local-environment/oauth2-proxy-localhost.cfg"],
+            "args": ["--config", "contrib/local-environment/oauth2-proxy-nginx-keycloak.cfg"],
         },
         {
             "name": "Launch Package",
@@ -18,7 +18,7 @@
             "request": "launch",
             "mode": "exec",
             "program": "${workspaceFolder}",
-            "args": ["--config", "contrib/local-environment/oauth2-proxy-localhost.cfg"]
+            "args": ["--config", "contrib/local-environment/oauth2-proxy-nginx-keycloak.cfg"]
         }
     ]
 }
