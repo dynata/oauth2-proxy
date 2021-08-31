@@ -200,6 +200,10 @@ func Validate(o *options.Options) error {
 		logger.Print("WARNING: no explicit redirect URL: redirects will default to insecure HTTP")
 	}
 
+	var appRedirectURL *url.URL
+	appRedirectURL, msgs = parseRequestURI(o.RawAppRedirectURL, "app-redirect", msgs)
+	o.SetDefaultAppRedirectURL(appRedirectURL)
+
 	msgs = append(msgs, validateUpstreams(o.UpstreamServers)...)
 	msgs = parseProviderInfo(o, msgs)
 
@@ -433,6 +437,15 @@ type jwtIssuer struct {
 
 func parseURL(toParse string, urltype string, msgs []string) (*url.URL, []string) {
 	parsed, err := url.Parse(toParse)
+	if err != nil {
+		return nil, append(msgs, fmt.Sprintf(
+			"error parsing %s-url=%q %s", urltype, toParse, err))
+	}
+	return parsed, msgs
+}
+
+func parseRequestURI(toParse string, urltype string, msgs []string) (*url.URL, []string) {
+	parsed, err := url.ParseRequestURI(toParse)
 	if err != nil {
 		return nil, append(msgs, fmt.Sprintf(
 			"error parsing %s-url=%q %s", urltype, toParse, err))

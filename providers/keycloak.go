@@ -237,11 +237,11 @@ func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.Sess
 // RefreshSessionIfNeeded checks if the session has expired and uses the
 // RefreshToken to fetch a new Access Token (and optional ID token) if required
 func (p *KeycloakProvider) RefreshSessionIfNeeded(ctx context.Context, s *sessions.SessionState) (bool, error) {
-	skipRefreshIntervalTest := ctx.Value(constants.ContextSkipRefreshInterval{})
-	skipRefreshIntervalTestBool, _ := skipRefreshIntervalTest.(bool)
+	skipRefreshInterval := ctx.Value(constants.ContextSkipRefreshInterval{})
+	performSkip := skipRefreshInterval != nil && skipRefreshInterval.(bool)
 
 	if s == nil ||
-		(!skipRefreshIntervalTestBool && s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) ||
+		(!performSkip && s.ExpiresOn != nil && s.ExpiresOn.After(time.Now())) ||
 		s.RefreshToken == "" {
 		return false, nil
 	}

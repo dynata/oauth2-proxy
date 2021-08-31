@@ -76,19 +76,20 @@ type OAuthProxy struct {
 	AuthOnlyPath      string
 	UserInfoPath      string
 
-	allowedRoutes       []allowedRoute
-	redirectURL         *url.URL // the url to receive requests at
-	whitelistDomains    []string
-	provider            providers.Provider
-	sessionStore        sessionsapi.SessionStore
-	ProxyPrefix         string
-	basicAuthValidator  basic.Validator
-	serveMux            http.Handler
-	SkipProviderButton  bool
-	skipAuthPreflight   bool
-	skipJwtBearerTokens bool
-	realClientIPParser  ipapi.RealClientIPParser
-	trustedIPs          *ip.NetSet
+	allowedRoutes         []allowedRoute
+	redirectURL           *url.URL // the url to receive requests at
+	defaultAppRedirectURL *url.URL
+	whitelistDomains      []string
+	provider              providers.Provider
+	sessionStore          sessionsapi.SessionStore
+	ProxyPrefix           string
+	basicAuthValidator    basic.Validator
+	serveMux              http.Handler
+	SkipProviderButton    bool
+	skipAuthPreflight     bool
+	skipJwtBearerTokens   bool
+	realClientIPParser    ipapi.RealClientIPParser
+	trustedIPs            *ip.NetSet
 
 	sessionLoader *middleware.StoredSessionLoader
 	sessionChain  alice.Chain
@@ -157,6 +158,8 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		redirectURL.Path = fmt.Sprintf("%s/callback", opts.ProxyPrefix)
 	}
 
+	defaultAppRedirectURL := opts.GetDefaultAppRedirectURL()
+
 	logger.Printf("OAuthProxy configured for %s Client ID: %s", opts.GetProvider().Data().ProviderName, opts.Providers[0].ClientID)
 	refresh := "disabled"
 	if opts.Cookie.Refresh != time.Duration(0) {
@@ -203,18 +206,19 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		AuthOnlyPath:      fmt.Sprintf("%s/auth", opts.ProxyPrefix),
 		UserInfoPath:      fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
 
-		ProxyPrefix:         opts.ProxyPrefix,
-		provider:            provider,
-		sessionStore:        sessionStore,
-		serveMux:            upstreamProxy,
-		redirectURL:         redirectURL,
-		allowedRoutes:       allowedRoutes,
-		whitelistDomains:    opts.WhitelistDomains,
-		skipAuthPreflight:   opts.SkipAuthPreflight,
-		skipJwtBearerTokens: opts.SkipJwtBearerTokens,
-		realClientIPParser:  opts.GetRealClientIPParser(),
-		SkipProviderButton:  opts.SkipProviderButton,
-		trustedIPs:          trustedIPs,
+		ProxyPrefix:           opts.ProxyPrefix,
+		provider:              provider,
+		sessionStore:          sessionStore,
+		serveMux:              upstreamProxy,
+		redirectURL:           redirectURL,
+		defaultAppRedirectURL: defaultAppRedirectURL,
+		allowedRoutes:         allowedRoutes,
+		whitelistDomains:      opts.WhitelistDomains,
+		skipAuthPreflight:     opts.SkipAuthPreflight,
+		skipJwtBearerTokens:   opts.SkipJwtBearerTokens,
+		realClientIPParser:    opts.GetRealClientIPParser(),
+		SkipProviderButton:    opts.SkipProviderButton,
+		trustedIPs:            trustedIPs,
 
 		basicAuthValidator: basicAuthValidator,
 		sessionLoader:      sessionLoader,
@@ -465,6 +469,8 @@ func (p *OAuthProxy) IsValidRedirect(redirect string) bool {
 	case redirect == "":
 		// The user didn't specify a redirect, should fallback to `/`
 		return false
+	case redirect == p.defaultAppRedirectURL.String():
+		return true
 	case strings.HasPrefix(redirect, "/") && !strings.HasPrefix(redirect, "//") && !invalidRedirectRegex.MatchString(redirect):
 		return true
 	case strings.HasPrefix(redirect, "http://") || strings.HasPrefix(redirect, "https://"):
@@ -609,7 +615,8 @@ func (p *OAuthProxy) isTrustedIP(req *http.Request) bool {
 	return p.trustedIPs.Has(remoteAddr)
 }
 
-func modifyRequestForMockLoginAPI(providerData *providers.ProviderData, req *http.Request) *http.Request {
+func (p *OAuthProxy) modifyRequestForMockLoginAPI(providerData *providers.ProviderData,
+	req *http.Request) *http.Request {
 	if req.Method == http.MethodGet {
 		if err := req.ParseForm(); err != nil {
 			logger.Errorf("Error parsing form data: %v", err)
@@ -662,7 +669,24 @@ func modifyRequestForMockLoginAPI(providerData *providers.ProviderData, req *htt
 
 // Mock OIDC login API
 func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request) {
-	modifyRequestForMockLoginAPI(p.provider.Data(), req)
+	reqClientId := req.FormValue("client_id")
+	reqRedirect := req.FormValue("redirect_uri")
+
+	if !p.isValidClientId(reqClientId) {
+		err := fmt.Sprintf("Error validating client_id %v", reqClientId)
+		logger.Error(err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err)
+		return
+	}
+
+	if !p.IsValidRedirect(reqRedirect) {
+		err := fmt.Sprintf("Error validating redirect_uri %v", reqRedirect)
+		logger.Error(err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err)
+		return
+	}
+
+	req = p.modifyRequestForMockLoginAPI(p.provider.Data(), req)
 	p.OAuthStart(rw, req)
 }
 
@@ -828,6 +852,21 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 	} else {
 		rw.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (p *OAuthProxy) isValidClientId(reqClientId string) bool {
+	clients := []string{p.provider.Data().ClientID}
+	for clientId := range p.provider.Data().Clients {
+		clients = append(clients, clientId)
+	}
+
+	for index := range clients {
+		clientId := clients[index]
+		if clientId == reqClientId {
+			return true
+		}
+	}
+	return false
 }
 
 // SignInPage writes the sing in template to the response
@@ -1006,7 +1045,7 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 
 	clientId, err := p.getClientID(req)
 	if err != nil {
-		logger.Errorf("Error obtaining client ID from request: %v", err)
+		logger.Printf("Error obtaining client ID from request: %v", err)
 		logger.Printf("Setting default client ID")
 		clientId = p.provider.Data().ClientID
 	}
@@ -1113,7 +1152,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	p.provider.ValidateSession(req.Context(), session)
 
 	if !p.IsValidRedirect(appRedirect) {
-		appRedirect = "/"
+		appRedirect = p.defaultAppRedirectURL.String()
 	}
 
 	// set cookie, or deny
@@ -1348,7 +1387,7 @@ func (p *OAuthProxy) getAppRedirect(req *http.Request) (string, error) {
 		}
 	}
 
-	return "/", nil
+	return p.defaultAppRedirectURL.String(), nil
 }
 
 func isForwardedRequest(req *http.Request) bool {
@@ -1434,11 +1473,11 @@ func (p *OAuthProxy) getURIRedirect(req *http.Request) string {
 	}
 
 	if p.hasProxyPrefix(redirect) {
-		return "/"
+		return p.defaultAppRedirectURL.String()
 	}
 
 	if p.hasMockPrefix(redirect) {
-		return "/"
+		return p.defaultAppRedirectURL.String()
 	}
 	return redirect
 }
