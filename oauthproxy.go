@@ -685,12 +685,11 @@ func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err)
 		return
 	}
-
 	req = p.modifyRequestForMockLoginAPI(p.provider.Data(), req)
 	p.OAuthStart(rw, req)
 }
 
-// Mimicks Token API
+// Mock Token API
 func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request) {
 	prepareNoCache(rw)
 
@@ -972,16 +971,72 @@ func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request) {
-	req.Header.Add("X-Auth-Request-Redirect", req.FormValue("redirect_uri"))
-	ss, err := p.getAuthenticatedSession(rw, req)
-	if ss != nil && err == nil {
-		_, err = p.provider.Logout(req.Context(), ss)
-		if err != nil {
-			p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+	var redirectURI string
+
+	if req.FormValue("redirect_uri") != "" {
+		redirectURI = req.FormValue("redirect_uri")
+		if p.IsValidRedirect(redirectURI) {
+			req.Header.Add("X-Auth-Request-Redirect", redirectURI)
+		} else {
+			logger.Printf("Logout redirect uri is invalid")
+			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
 	}
-	p.SignOut(rw, req)
+
+	if req.Method == "POST" && req.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
+		if req.FormValue("refresh_token") == "" {
+			err := errors.New("refresh_token not provided")
+			logger.Errorf("Error logging out: %v", err)
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		if req.FormValue("client_id") == "" {
+			err := errors.New("client_id not provided")
+			logger.Errorf("Error logging out: %v", err)
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		var ss *sessionsapi.SessionState = &sessionsapi.SessionState{
+			ClientId:     req.FormValue("client_id"),
+			RefreshToken: req.FormValue("refresh_token"),
+		}
+
+		_, err := p.provider.Logout(req.Context(), ss)
+		if err != nil {
+			logger.Errorf("Error logging out: %v", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	} else {
+		logoutUrl := p.provider.Data().LogoutURL
+		scheme := req.URL.Scheme
+		host := req.URL.Host
+		if scheme == "" {
+			scheme = "http"
+		}
+		if host == "" {
+			host = req.Host
+		}
+		urlHost := fmt.Sprintf("%s://%s", scheme, host)
+
+		var rdUrl string
+		if redirectURI != "" {
+			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + redirectURI
+		} else {
+			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + p.SignInPath
+		}
+
+		queries := logoutUrl.Query()
+		queries.Set("redirect_uri", rdUrl)
+		logoutUrl.RawQuery = queries.Encode()
+
+		// logger.Errorf("Redirect URL: %v", logoutUrl)
+
+		http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
+	}
 }
 
 func (p *OAuthProxy) MockJwksUriRequest(rw http.ResponseWriter, req *http.Request) {
@@ -1470,6 +1525,10 @@ func (p *OAuthProxy) getURIRedirect(req *http.Request) string {
 	)
 	if redirect == "" {
 		redirect = req.URL.RequestURI()
+	}
+
+	if redirect == "/" {
+		return p.defaultAppRedirectURL.String()
 	}
 
 	if p.hasProxyPrefix(redirect) {

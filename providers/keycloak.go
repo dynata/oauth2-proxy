@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -43,12 +44,17 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 			Host:   p.RedeemURL.Host,
 			Path:   p.RedeemURL.Path[:lastInd] + "/certs",
 		}
+		keycloakDefaultValidateURL := &url.URL{
+			Scheme: p.RedeemURL.Scheme,
+			Host:   p.RedeemURL.Host,
+			Path:   p.RedeemURL.Path + "/introspect",
+		}
 		p.setProviderDefaults(providerDefaults{
 			// name:        keycloakProviderName,
 			// loginURL:    keycloakDefaultLoginURL,
 			// redeemURL:   keycloakDefaultRedeemURL,
-			profileURL: keycloakDefaultProfileURL,
-			// validateURL: keycloakDefaultValidateURL,
+			profileURL:  keycloakDefaultProfileURL,
+			validateURL: keycloakDefaultValidateURL,
 			// scope:       keycloakDefaultScope,
 			logoutURL: keycloakDefaultLogoutURL,
 			jwksURL:   keycloakDefaultJwksURL,
@@ -209,6 +215,8 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 
 // ValidateSession checks that the session's IDToken is still valid
 func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.SessionState) bool {
+	isTokenValid := validateKeycloakToken(ctx, p, s, nil)
+
 	verifier := p.Verifier
 
 	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
@@ -223,7 +231,7 @@ func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.Sess
 	}
 
 	if p.SkipNonce {
-		return true
+		return true && isTokenValid
 	}
 	err = p.checkNonce(s, idToken)
 	if err != nil {
@@ -231,7 +239,7 @@ func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.Sess
 		return false
 	}
 
-	return true
+	return true && isTokenValid
 }
 
 // RefreshSessionIfNeeded checks if the session has expired and uses the
@@ -416,8 +424,8 @@ func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Toke
 func (p *KeycloakProvider) Logout(ctx context.Context, s *sessions.SessionState) (bool, error) {
 	providerData := p.Data()
 
-	loginURL := providerData.LogoutURL
-	if s != nil && loginURL != nil && loginURL.String() != "" {
+	logoutURL := providerData.LogoutURL
+	if s != nil && logoutURL != nil && logoutURL.String() != "" {
 		clientId := providerData.ClientID
 		clientSecret, err := providerData.GetClientSecret()
 
@@ -428,6 +436,7 @@ func (p *KeycloakProvider) Logout(ctx context.Context, s *sessions.SessionState)
 		if s.ClientId != "" {
 			clientId = s.ClientId
 		}
+		refreshToken := s.RefreshToken
 
 		configMapList := providerData.Clients[clientId]
 		for _, config := range configMapList {
@@ -444,7 +453,7 @@ func (p *KeycloakProvider) Logout(ctx context.Context, s *sessions.SessionState)
 		form := url.Values{}
 		form.Add("client_id", clientId)
 		form.Add("client_secret", clientSecret)
-		form.Add("refresh_token", s.RefreshToken)
+		form.Add("refresh_token", refreshToken)
 
 		newRequest, err := http.NewRequest("POST", providerData.LogoutURL.String(), strings.NewReader(form.Encode()))
 		newRequest.Header.Add("Content-Type", "application/x-www-form-urlencoded")
@@ -456,7 +465,7 @@ func (p *KeycloakProvider) Logout(ctx context.Context, s *sessions.SessionState)
 		if err != nil {
 			return false, err
 		}
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
 			logger.Print("Logged out from provider")
 			return true, nil
 		}
@@ -499,4 +508,74 @@ func (p *KeycloakProvider) PerformPasswordGrant(ctx context.Context, username, p
 	}
 
 	return ss, err
+}
+
+func validateKeycloakToken(ctx context.Context, p Provider, s *sessions.SessionState, header http.Header) bool {
+	if s == nil || s.AccessToken == "" || p.Data().ValidateURL == nil || p.Data().ValidateURL.String() == "" {
+		return false
+	}
+
+	if header == nil {
+		header = http.Header{}
+	}
+
+	clientSecret, err := p.Data().GetClientSecret()
+	if err != nil {
+		panic("Failed to get client credentials during validation of keycloak token")
+	}
+
+	clientId := p.Data().ClientID
+
+	if s.ClientId != "" {
+		clientId = s.ClientId
+		clientConfigs := p.Data().Clients[clientId]
+		for _, client := range clientConfigs {
+			if client["client_id"] != "" && client["client_secret"] != "" {
+				clientId = client["client_id"]
+				clientSecret = client["client_secret"]
+				break
+			}
+		}
+	} else if ctx != nil {
+		requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
+		if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
+			clientId = v
+		}
+		if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
+			clientSecret = v
+		}
+	}
+	auth := clientId + ":" + clientSecret
+
+	header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
+	header.Set("Content-Type", "application/x-www-form-urlencoded")
+	endpoint := p.Data().ValidateURL.String()
+	form := url.Values{"token": {s.AccessToken}}
+
+	result := requests.New(endpoint).
+		WithContext(ctx).
+		WithHeaders(header).
+		WithMethod("POST").
+		WithBody(strings.NewReader(form.Encode())).
+		Do()
+	if result.Error() != nil {
+		logger.Errorf("GET %s", stripToken(endpoint))
+		logger.Errorf("token validation request failed: %s", result.Error())
+		return false
+	}
+
+	logger.Printf("%d GET %s %s", result.StatusCode(), stripToken(endpoint), result.Body())
+
+	if result.StatusCode() == 200 {
+		json, err := result.UnmarshalJSON()
+		if err != nil {
+			return false
+		}
+		if v, _ := json.Get("active").Bool(); v {
+			return true
+		}
+		return false
+	}
+	logger.Errorf("token validation request failed: status %d - %s", result.StatusCode(), result.Body())
+	return false
 }

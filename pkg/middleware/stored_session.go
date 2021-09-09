@@ -151,15 +151,15 @@ func (s *StoredSessionLoader) getValidatedSession(rw http.ResponseWriter, req *h
 func (s *StoredSessionLoader) RefreshSessionForcefully(rw http.ResponseWriter, req *http.Request, session *sessionsapi.SessionState) error {
 	logger.Printf("Refreshing access token using refresh token")
 
-	refreshed, err := s.refreshSessionWithProvider(rw, req, session)
+	_, err := s.refreshSessionWithProvider(rw, req, session)
 	if err != nil {
 		return err
 	}
 
-	if !refreshed {
+	/* if !refreshed {
 		// Session wasn't refreshed, so make sure it's still valid
 		return s.validateSession(req.Context(), session)
-	}
+	} */
 	return nil
 }
 
@@ -171,21 +171,26 @@ func (s *StoredSessionLoader) RefreshSessionForcefully(rw http.ResponseWriter, r
 // we must validate the session to ensure that the returned session is still
 // valid.
 func (s *StoredSessionLoader) refreshSessionIfNeeded(rw http.ResponseWriter, req *http.Request, session *sessionsapi.SessionState) error {
+	if err := s.validateSession(req.Context(), session); err != nil {
+		logger.Printf("Session validation failed!")
+		return err
+	}
+
 	if s.refreshPeriod <= time.Duration(0) || session.Age() < s.refreshPeriod {
 		// Refresh is disabled or the session is not old enough, do nothing
 		return nil
 	}
 
 	logger.Printf("Refreshing %s old session cookie for %s (refresh after %s)", session.Age(), session, s.refreshPeriod)
-	refreshed, err := s.refreshSessionWithProvider(rw, req, session)
+	_, err := s.refreshSessionWithProvider(rw, req, session)
 	if err != nil {
 		return err
 	}
 
-	if !refreshed {
-		// Session wasn't refreshed, so make sure it's still valid
-		return s.validateSession(req.Context(), session)
-	}
+	// if !refreshed {
+	// 	// Session wasn't refreshed, so make sure it's still valid
+	// 	return s.validateSession(req.Context(), session)
+	// }
 	return nil
 }
 
