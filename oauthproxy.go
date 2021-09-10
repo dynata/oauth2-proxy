@@ -975,9 +975,7 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 
 	if req.FormValue("redirect_uri") != "" {
 		redirectURI = req.FormValue("redirect_uri")
-		if p.IsValidRedirect(redirectURI) {
-			req.Header.Add("X-Auth-Request-Redirect", redirectURI)
-		} else {
+		if !p.IsValidRedirect(redirectURI) {
 			logger.Printf("Logout redirect uri is invalid")
 			rw.WriteHeader(http.StatusBadRequest)
 			return
@@ -1024,7 +1022,7 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 
 		var rdUrl string
 		if redirectURI != "" {
-			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + redirectURI
+			rdUrl = urlHost + p.SignOutPath + "?rd=" + redirectURI
 		} else {
 			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + p.SignInPath
 		}
@@ -1033,7 +1031,7 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		queries.Set("redirect_uri", rdUrl)
 		logoutUrl.RawQuery = queries.Encode()
 
-		// logger.Errorf("Redirect URL: %v", logoutUrl)
+		logger.Errorf("Redirect URL: %v", logoutUrl)
 
 		http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
 	}
