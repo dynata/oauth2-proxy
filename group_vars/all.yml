@@ -7,7 +7,7 @@ docker_deploy_type: kubernetes
 
 project_name: oauth2-proxy
 project_team: insightsplatform@dynata.com
-project_group: INSIGHTSPLATFORM
+project_group: insightsplatform
 project_container_port: 4180
 
 ingress_type: internet-facing
