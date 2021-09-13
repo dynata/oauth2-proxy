@@ -1,0 +1,35 @@
+health_check:
+  uri: "/ping"
+  delay: 60
+  timeout: 60
+
+docker_deploy_type: kubernetes
+
+project_name: oauth2-proxy
+project_team: insightsplatform@dynata.com
+project_group: INSIGHTSPLATFORM
+project_container_port: 4180
+
+ingress_type: internet-facing
+
+k8s_secret_name: INSIGHTSPLATFORM-oauth2-proxy
+
+secrets:
+  OAUTH2_PROXY_COOKIE_SECRET: oauth2_proxy_cookie_secret
+  OAUTH2_PROXY_COOKIE_DOMAINS: oauth2_proxy_cookie_domains
+  OAUTH2_PROXY_WHITELIST_DOMAINS: oauth2_proxy_whitelist_domains
+  OAUTH2_PROXY_CLIENT_SECRET: oauth2_proxy_client_secret
+  OAUTH2_PROXY_REDIS_CONNECTION_URL: oauth2_proxy_redis_connection_url
+
+envs:
+  OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+  OAUTH2_PROXY_SCOPE: "openid offline_access"
+  OAUTH2_PROXY_PASS_ACCESS_TOKEN: "true"
+  OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "true"
+  OAUTH2_PROXY_COOKIE_SECURE: "true"
+  OAUTH2_PROXY_COOKIE_SAMESITE: "none"
+  OAUTH2_PROXY_COOKIE_EXPIRE: "300m"
+  OAUTH2_PROXY_COOKIE_REFRESH: "1m"
+  OAUTH2_PROXY_SESSION_STORE_TYPE: "redis"
+  OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL: "true"
+  OAUTH2_PROXY_SILENCE_PING_LOGGING: true
