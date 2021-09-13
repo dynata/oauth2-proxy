@@ -12,7 +12,7 @@ project_container_port: 4180
 
 ingress_type: internet-facing
 
-k8s_secret_name: INSIGHTSPLATFORM-oauth2-proxy
+k8s_secret_name: insightsplatform-oauth2-proxy
 
 secrets:
   OAUTH2_PROXY_COOKIE_SECRET: oauth2_proxy_cookie_secret
