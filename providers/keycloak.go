@@ -44,17 +44,17 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 			Host:   p.RedeemURL.Host,
 			Path:   p.RedeemURL.Path[:lastInd] + "/certs",
 		}
-		keycloakDefaultValidateURL := &url.URL{
+		/* keycloakDefaultValidateURL := &url.URL{
 			Scheme: p.RedeemURL.Scheme,
 			Host:   p.RedeemURL.Host,
 			Path:   p.RedeemURL.Path + "/introspect",
-		}
+		} */
 		p.setProviderDefaults(providerDefaults{
 			// name:        keycloakProviderName,
 			// loginURL:    keycloakDefaultLoginURL,
 			// redeemURL:   keycloakDefaultRedeemURL,
-			profileURL:  keycloakDefaultProfileURL,
-			validateURL: keycloakDefaultValidateURL,
+			profileURL: keycloakDefaultProfileURL,
+			// validateURL: keycloakDefaultValidateURL,
 			// scope:       keycloakDefaultScope,
 			logoutURL: keycloakDefaultLogoutURL,
 			jwksURL:   keycloakDefaultJwksURL,
