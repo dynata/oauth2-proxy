@@ -1,0 +1,7 @@
+k8s_secret_name: INSIGHTSPLATFORM-oauth2-proxy
+
+envs:
+  APP_ENV: dev
+  OAUTH2_PROXY_DEFAULT_APP_REDIRECT_URL: "https://platform.dev.pe.dynata.com"
+  OAUTH2_PROXY_REDIRECT_URL: "http://oauth2-proxy.dev.pe.dynata.com/oauth2/callback"
+  OAUTH2_PROXY_OIDC_ISSUER_URL: "https://keycloak.dev.pe.dynata.com/auth/realms/master"
