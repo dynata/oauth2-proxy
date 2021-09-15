@@ -103,12 +103,14 @@ validate-go-version:
 
 # local-env can be used to interact with the local development environment
 # eg:
-#    make local-env-up 					# Bring up a basic test environment
-#    make local-env-down 				# Tear down the basic test environment
-#    make local-env-nginx-up 		# Bring up an nginx based test environment
-#    make local-env-nginx-down 	# Tead down the nginx based test environment
-#    make local-env-keycloak-nginx-up 		# Bring up an nginx and keycloak based test environment
-#    make local-env-keycloak-nginx-down 	# Tead down the nginx and keycloak based test environment
+#    make local-env-up 							# Bring up a basic test environment
+#    make local-env-down 						# Tear down the basic test environment
+#    make local-env-nginx-up 					# Bring up an nginx based test environment
+#    make local-env-nginx-down 					# Tear down the nginx based test environment
+#    make local-env-keycloak-nginx-up 			# Bring up an nginx and keycloak based test environment
+#    make local-env-keycloak-nginx-down 		# Tear down the nginx and keycloak based test environment
+#	 make local-env-keycloak-pe-dev-nginx-up	# Bring up an nginx and pe env keycloak based test environment
+#	 make local-env-keycloak-pe-dev-nginx-down	# Tear down the nginx and pe env keycloak based test environment
 .PHONY: local-env-%
 local-env-%:
 	make -C contrib/local-environment $*
