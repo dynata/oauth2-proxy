@@ -34,13 +34,17 @@ keycloak-%:
 keycloak-nginx-up:
 	docker-compose -f docker-compose-nginx-keycloak.yaml up -d
 
+.PHONY: keycloak-nginx-%
+keycloak-nginx-%:
+	docker-compose -f docker-compose-nginx-keycloak.yaml $*
+
 .PHONY: keycloak-pe-dev-nginx-up
 keycloak-pe-dev-nginx-up:
 	docker-compose -f docker-compose-nginx-pe-env-keycloak.yaml up -d
 
-.PHONY: keycloak-nginx-%
+.PHONY: keycloak-pe-dev-nginx-%
 keycloak-nginx-%:
-	docker-compose -f docker-compose-nginx-keycloak.yaml $*
+	docker-compose -f docker-compose-nginx-pe-env-keycloak.yaml $*
 
 .PHONY: kubernetes-up
 kubernetes-up:
