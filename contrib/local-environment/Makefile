@@ -43,7 +43,7 @@ keycloak-pe-dev-nginx-up:
 	docker-compose -f docker-compose-nginx-pe-env-keycloak.yaml up -d
 
 .PHONY: keycloak-pe-dev-nginx-%
-keycloak-nginx-%:
+keycloak-pe-dev-nginx-%:
 	docker-compose -f docker-compose-nginx-pe-env-keycloak.yaml $*
 
 .PHONY: kubernetes-up
