@@ -2,6 +2,7 @@ GO ?= go
 GOLANGCILINT ?= golangci-lint
 
 BINARY := oauth2-proxy
+BINARY_DEBUG := oauth2-proxy-debug
 VERSION ?= $(shell git describe --always --dirty --tags 2>/dev/null || echo "undefined")
 # Allow to override image registry.
 REGISTRY ?= quay.io/oauth2-proxy
@@ -39,6 +40,12 @@ lint: validate-go-version
 build: validate-go-version clean $(BINARY)
 
 $(BINARY):
+	GO111MODULE=on CGO_ENABLED=0 $(GO) build -a -installsuffix cgo -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
+
+.PHONY: build-debug
+build-debug: validate-go-version clean $(BINARY_DEBUG)
+
+$(BINARY_DEBUG):
 	GO111MODULE=on CGO_ENABLED=0 $(GO) build -a -installsuffix cgo -gcflags "all=-N -l" -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
 
 .PHONY: docker
@@ -47,7 +54,7 @@ docker:
 
 .PHONY: docker-debug
 docker-debug:
-	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:debug .
+	$(DOCKER_BUILD) --no-cache -f Dockerfile.debug -t $(REGISTRY)/oauth2-proxy:debug .
 
 .PHONY: docker-all
 docker-all: docker

@@ -60,6 +60,7 @@ services:
           - oauth2-proxy.localhost
     ports:
       - 4180:4180/tcp
+      - 41800:41800/tcp
 
 networks:
   oauth2-proxy:
