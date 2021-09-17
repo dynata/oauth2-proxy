@@ -28,6 +28,10 @@ clean:
 	rm -rf release
 	rm -f $(BINARY)
 
+.PHONY: clean-debug
+clean-debug:
+	rm -f $(BINARY_DEBUG)
+
 .PHONY: distclean
 distclean: clean
 	rm -rf vendor
@@ -43,7 +47,7 @@ $(BINARY):
 	GO111MODULE=on CGO_ENABLED=0 $(GO) build -a -installsuffix cgo -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
 
 .PHONY: build-debug
-build-debug: validate-go-version clean $(BINARY_DEBUG)
+build-debug: validate-go-version clean-debug $(BINARY_DEBUG)
 
 $(BINARY_DEBUG):
 	GO111MODULE=on CGO_ENABLED=0 $(GO) build -a -installsuffix cgo -gcflags "all=-N -l" -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
@@ -54,7 +58,7 @@ docker:
 
 .PHONY: docker-debug
 docker-debug:
-	$(DOCKER_BUILD) --no-cache -f Dockerfile.debug -t $(REGISTRY)/oauth2-proxy:debug .
+	$(DOCKER_BUILD) -f Dockerfile.debug -t $(REGISTRY)/oauth2-proxy:debug .
 
 .PHONY: docker-all
 docker-all: docker
