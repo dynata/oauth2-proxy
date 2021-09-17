@@ -52,7 +52,7 @@ services:
     command: --config /oauth2-proxy.cfg
     hostname: oauth2-proxy
     volumes:
-      - "./oauth2-proxy-pe-env-nginx-keycloak-folio3.cfg:/oauth2-proxy.cfg"
+      - "./oauth2-proxy-pe-env-nginx-keycloak-folio3-ip.cfg:/oauth2-proxy.cfg"
     restart: unless-stopped
     networks:
       oauth2-proxy:
