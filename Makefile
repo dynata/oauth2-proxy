@@ -50,7 +50,7 @@ $(BINARY):
 build-debug: validate-go-version clean-debug $(BINARY_DEBUG)
 
 $(BINARY_DEBUG):
-	GO111MODULE=on CGO_ENABLED=0 $(GO) build -a -installsuffix cgo -gcflags "all=-N -l" -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
+	$(GO) build -gcflags "all=-N -l" -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
 
 .PHONY: docker
 docker:
