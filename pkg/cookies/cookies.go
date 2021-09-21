@@ -46,7 +46,9 @@ func MakeCookieFromOptions(req *http.Request, name string, value string, opts *o
 func GetCookieDomain(req *http.Request, cookieDomains []string) string {
 	host := requestutil.GetRequestHost(req)
 	for _, domain := range cookieDomains {
-		if strings.HasSuffix(host, domain) {
+		h, _, _ := net.SplitHostPort(host)
+		d, _, _ := net.SplitHostPort(domain)
+		if strings.Contains(h, d) {
 			return domain
 		}
 	}
