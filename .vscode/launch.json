@@ -19,6 +19,16 @@
             "mode": "exec",
             "program": "${workspaceFolder}",
             "args": ["--config", "contrib/local-environment/oauth2-proxy-pe-env-localhost.cfg"]
+        },
+        {
+            "name": "Attach remote",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "port": 41800,
+            "host": "127.0.0.1",
+            "apiVersion": 2,
+            "showLog": true
         }
     ]
 }

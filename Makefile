@@ -2,6 +2,7 @@ GO ?= go
 GOLANGCILINT ?= golangci-lint
 
 BINARY := oauth2-proxy
+BINARY_DEBUG := oauth2-proxy-debug
 VERSION ?= $(shell git describe --always --dirty --tags 2>/dev/null || echo "undefined")
 # Allow to override image registry.
 REGISTRY ?= quay.io/oauth2-proxy
@@ -27,6 +28,10 @@ clean:
 	rm -rf release
 	rm -f $(BINARY)
 
+.PHONY: clean-debug
+clean-debug:
+	rm -f $(BINARY_DEBUG)
+
 .PHONY: distclean
 distclean: clean
 	rm -rf vendor
@@ -41,13 +46,19 @@ build: validate-go-version clean $(BINARY)
 $(BINARY):
 	GO111MODULE=on CGO_ENABLED=0 $(GO) build -a -installsuffix cgo -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
 
+.PHONY: build-debug
+build-debug: validate-go-version clean-debug $(BINARY_DEBUG)
+
+$(BINARY_DEBUG):
+	$(GO) build -gcflags "all=-N -l" -ldflags="-X main.VERSION=${VERSION}" -o $@ github.com/oauth2-proxy/oauth2-proxy/v7
+
 .PHONY: docker
 docker:
 	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:latest .
 
 .PHONY: docker-debug
 docker-debug:
-	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:debug .
+	$(DOCKER_BUILD) -f Dockerfile.debug -t $(REGISTRY)/oauth2-proxy:debug .
 
 .PHONY: docker-all
 docker-all: docker
@@ -103,12 +114,16 @@ validate-go-version:
 
 # local-env can be used to interact with the local development environment
 # eg:
-#    make local-env-up 					# Bring up a basic test environment
-#    make local-env-down 				# Tear down the basic test environment
-#    make local-env-nginx-up 		# Bring up an nginx based test environment
-#    make local-env-nginx-down 	# Tead down the nginx based test environment
-#    make local-env-keycloak-nginx-up 		# Bring up an nginx and keycloak based test environment
-#    make local-env-keycloak-nginx-down 	# Tead down the nginx and keycloak based test environment
+#    make local-env-up 									# Bring up a basic test environment
+#    make local-env-down 								# Tear down the basic test environment
+#    make local-env-nginx-up 							# Bring up an nginx based test environment
+#    make local-env-nginx-down 							# Tear down the nginx based test environment
+#    make local-env-keycloak-nginx-up 					# Bring up an nginx and keycloak based test environment
+#    make local-env-keycloak-nginx-down 				# Tear down the nginx and keycloak based test environment
+#	 make local-env-keycloak-pe-dev-nginx-up			# Bring up an nginx and pe env keycloak based test environment
+#	 make local-env-keycloak-pe-dev-nginx-down			# Tear down the nginx and pe env keycloak based test environment
+#	 make local-env-keycloak-pe-dev-nginx-folio3-up		# Bring up an nginx and pe env keycloak based test environment
+#	 make local-env-keycloak-pe-dev-nginx-folio3-down	# Tear down the nginx and pe env keycloak based test environment
 .PHONY: local-env-%
 local-env-%:
 	make -C contrib/local-environment $*
