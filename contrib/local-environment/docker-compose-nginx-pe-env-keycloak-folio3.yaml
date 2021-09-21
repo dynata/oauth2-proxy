@@ -28,6 +28,7 @@ services:
     hostname: nginx
     volumes:
       - "./nginx-keycloak-folio3.conf:/etc/nginx/conf.d/default.conf"
+      - "/home/f3dev/dynata-repos/pulse-ui/build:/pulse-ui/build"
     networks:
       oauth2-proxy: {}
     depends_on:
