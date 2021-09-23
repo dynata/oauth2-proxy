@@ -48,7 +48,7 @@ func GetCookieDomain(req *http.Request, cookieDomains []string) string {
 	for _, domain := range cookieDomains {
 		h, _ := requestutil.SplitHostPort(host)
 		d, _ := requestutil.SplitHostPort(domain)
-		if strings.Contains(h, d) {
+		if strings.HasSuffix(h, d) {
 			return domain
 		}
 	}
