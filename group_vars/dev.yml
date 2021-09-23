@@ -1,4 +1,4 @@
-k8s_secret_name: INSIGHTSPLATFORM-oauth2-proxy
+k8s_secret_name: insightsplatform-oauth2-proxy
 
 envs:
   APP_ENV: dev
