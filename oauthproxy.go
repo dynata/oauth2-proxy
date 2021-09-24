@@ -1544,7 +1544,7 @@ func (p *OAuthProxy) getURIRedirect(req *http.Request) string {
 // Unlike net.SplitHostPort, but per RFC 3986, it requires ports to be numeric.
 // *** taken from net/url, modified validOptionalPort() to accept ":*"
 func splitHostPort(hostport string) (host, port string) {
-	return requestutil.SplitHostPort(host)
+	return requestutil.SplitHostPort(hostport)
 }
 
 // getAuthenticatedSession checks whether a user is authenticated and returns a session object and nil error if so
