@@ -35,5 +35,5 @@ USER 2000:2000
 WORKDIR /oauth2-proxy
 
 ENTRYPOINT ["/bin/oauth2-proxy"]
-# ENTRYPOINT ["/bin/dlv", "--listen=:41800", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/bin/oauth2-proxy", "--log", "--"]
+# ENTRYPOINT ["/bin/dlv", "--listen=:41800", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/bin/oauth2-proxy", "--continue", "--"]
 # CMD [ "--config /oauth2-proxy.cfg" ]
