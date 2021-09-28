@@ -55,7 +55,7 @@ services:
       - apparmor=unconfined
     cap_add: 
       - SYS_PTRACE
-    entrypoint: ['/bin/dlv', '--listen=:41800', '--headless=true', '--accept-multiclient', '--api-version=2', 'exec', '/bin/oauth2-proxy', '--']
+    entrypoint: ['/bin/dlv', '--listen=:41800', '--headless=true', '--accept-multiclient', '--api-version=2', 'exec', '/bin/oauth2-proxy', '--continue', '--']
     command: --config /oauth2-proxy.cfg
     hostname: oauth2-proxy
     volumes:
