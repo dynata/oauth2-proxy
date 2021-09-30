@@ -1013,7 +1013,7 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		scheme := req.URL.Scheme
 		host := req.URL.Host
 		if scheme == "" {
-			scheme = "http"
+			scheme = "https"
 		}
 		if host == "" {
 			host = req.Host
