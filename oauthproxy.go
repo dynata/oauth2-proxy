@@ -166,7 +166,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		refresh = fmt.Sprintf("after %s", opts.Cookie.Refresh)
 	}
 
-	logger.Printf("Cookie settings: name:%s secure(https):%v httponly:%v expiry:%s domains:%s path:%s samesite:%s refresh:%s", opts.Cookie.Name, opts.Cookie.Secure, opts.Cookie.HTTPOnly, opts.Cookie.Expire, strings.Join(opts.Cookie.Domains, ","), opts.Cookie.Path, opts.Cookie.SameSite, refresh)
+	logger.Printf("Cookie settings: name:%s secure(https):%v httponly:%v expiry:%s domains:%s path:%s samesite:%s refresh:%s cookie-code-validity-expire:%s", opts.Cookie.Name, opts.Cookie.Secure, opts.Cookie.HTTPOnly, opts.Cookie.Expire, strings.Join(opts.Cookie.Domains, ","), opts.Cookie.Path, opts.Cookie.SameSite, refresh, opts.Cookie.CodeValidityDuration)
 
 	trustedIPs := ip.NewNetSet()
 	for _, ipStr := range opts.TrustedIPs {
@@ -549,6 +549,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockLogoutRequest(rw, req)
 	case path == p.provider.Data().JwksURL.Path: // JwksUri Endpoint
 		p.MockJwksUriRequest(rw, req)
+	case path == p.provider.Data().ChangePasswordURL.Path:
+		p.MockChangePasswordUriRequest(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -714,9 +716,14 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 			} else {
 				session, err := p.LoadCookiedSession(req)
 				if err != nil {
-					logger.Printf("Error loading session: %v", err)
-					rw.WriteHeader(http.StatusNotFound)
-					return
+					logger.Printf("Error loading oauth2 session: %v", err)
+					logger.Printf("Trying code from request directly with provider : %v", p.provider.Data().ProviderName)
+					session, err = p.redeemCode(req)
+					if err != nil {
+						rw.WriteHeader(http.StatusNotFound)
+						return
+					}
+
 				}
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
@@ -1061,6 +1068,10 @@ func (p *OAuthProxy) MockJwksUriRequest(rw http.ResponseWriter, req *http.Reques
 	rw.Write(body)
 }
 
+func (p *OAuthProxy) MockChangePasswordUriRequest(rw http.ResponseWriter, req *http.Request) {
+	http.Redirect(rw, req, p.provider.Data().ChangePasswordURL.String(), http.StatusFound)
+}
+
 // SignOut sends a response to clear the authentication cookie
 func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
 	redirect, err := p.getAppRedirect(req)
@@ -1166,7 +1177,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	session, err := p.redeemCode(req, clientId)
+	session, err := p.redeemCode(req)
 	if err != nil {
 		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
@@ -1276,7 +1287,7 @@ func (p *OAuthProxy) getSessionChain() alice.Chain {
 	return p.sessionChain
 }
 
-func (p *OAuthProxy) redeemCode(req *http.Request, clientId string) (*sessionsapi.SessionState, error) {
+func (p *OAuthProxy) redeemCode(req *http.Request) (*sessionsapi.SessionState, error) {
 	code := req.Form.Get("code")
 	if code == "" {
 		return nil, providers.ErrMissingCode

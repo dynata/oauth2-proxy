@@ -25,6 +25,7 @@ const (
 // of OAuth2 providers
 type ProviderData struct {
 	ProviderName      string
+	IssuerURL         *url.URL
 	LoginURL          *url.URL
 	RedeemURL         *url.URL
 	ProfileURL        *url.URL
@@ -32,6 +33,7 @@ type ProviderData struct {
 	ValidateURL       *url.URL
 	LogoutURL         *url.URL
 	JwksURL           *url.URL
+	ChangePasswordURL *url.URL
 	// Auth request params & related, see
 	//https://openid.net/specs/openid-connect-basic-1_0.html#rfc.section.2.1.1.1
 	AcrValues      string

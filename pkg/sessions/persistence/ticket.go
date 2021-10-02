@@ -159,7 +159,7 @@ func (t *ticket) saveSession(ctx context.Context, s *sessions.SessionState, tick
 	IsOauthMockRequestCallValue, _ := IsOauthMockRequestCall.(bool)
 
 	if originalRefreshTokenStr == "" {
-		err = saver(ticket_uuid, []byte(encodedTicket), time.Minute)
+		err = saver(ticket_uuid, []byte(encodedTicket), t.options.CodeValidityDuration)
 		if err != nil {
 			return err
 		}

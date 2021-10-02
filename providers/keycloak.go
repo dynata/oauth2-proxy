@@ -60,6 +60,11 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 			jwksURL:   keycloakDefaultJwksURL,
 		})
 	}
+	p.ChangePasswordURL = &url.URL{
+		Scheme: p.IssuerURL.Scheme,
+		Host:   p.IssuerURL.Host,
+		Path:   p.IssuerURL.Path + "/account/password",
+	}
 	return &KeycloakProvider{
 		ProviderData: p,
 		SkipNonce:    true,

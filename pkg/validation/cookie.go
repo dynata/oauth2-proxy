@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/encryption"
@@ -23,6 +24,15 @@ func validateCookie(o options.Cookie) []string {
 	case "", "none", "lax", "strict":
 	default:
 		msgs = append(msgs, fmt.Sprintf("cookie_samesite (%q) must be one of ['', 'lax', 'strict', 'none']", o.SameSite))
+	}
+
+	duration, err := time.ParseDuration("5s")
+	if err != nil {
+		panic(err)
+	}
+	if o.CodeValidityDuration < duration {
+		msgs = append(msgs, fmt.Sprintf(
+			"cookie_code_validity_expire must be greater than or equal to (%q)", duration))
 	}
 
 	// Sort cookie domains by length, so that we try longer (and more specific) domains first

@@ -248,6 +248,8 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 	p.LogoutURL, msgs = parseURL(o.Providers[0].LogoutURL, "logout", msgs)
 	p.JwksURL, msgs = parseURL(o.Providers[0].OIDCConfig.JwksURL, "jwks", msgs)
 	p.ProtectedResource, msgs = parseURL(o.Providers[0].ProtectedResource, "resource", msgs)
+	p.IssuerURL, msgs = parseURL(o.Providers[0].OIDCConfig.IssuerURL, "issuerURL", msgs)
+	p.ChangePasswordURL, msgs = parseURL(o.Providers[0].ChangePasswordURL, "changePassword", msgs)
 
 	// Make the OIDC options available to all providers that support it
 	p.AllowUnverifiedEmail = o.Providers[0].OIDCConfig.InsecureAllowUnverifiedEmail

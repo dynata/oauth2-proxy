@@ -62,7 +62,7 @@ type Provider struct {
 	// ProfileURL is the profile access endpoint
 	ProfileURL string `json:"profileURL,omitempty"`
 	// ProfileURL is the profile access endpoint
-	LogoutURL string `json:"profileURL,omitempty"`
+	LogoutURL string `json:"logoutURL,omitempty"`
 	// ProtectedResource is the resource that is protected (Azure AD and ADFS only)
 	ProtectedResource string `json:"resource,omitempty"`
 	// ValidateURL is the access token validation endpoint
@@ -76,9 +76,12 @@ type Provider struct {
 	ApprovalPrompt string `json:"approvalPrompt,omitempty"`
 	// AllowedGroups is a list of restrict logins to members of this group
 	AllowedGroups []string `json:"allowedGroups,omitempty"`
-
 	// AcrValues is a string of acr values
 	AcrValues string `json:"acrValues,omitempty"`
+	// ChangePasswordURL indicates URL where user can reset its password from
+	// prodiver's change password mechanism.
+	ChangePasswordURL string `json:"changePasswordURL,omitempty"`
+	IssuerURL         string `json:"issuerURL,omitempty"`
 }
 
 type KeycloakOptions struct {

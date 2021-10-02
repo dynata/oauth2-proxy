@@ -8,15 +8,16 @@ import (
 
 // Cookie contains configuration options relating to Cookie configuration
 type Cookie struct {
-	Name     string        `flag:"cookie-name" cfg:"cookie_name"`
-	Secret   string        `flag:"cookie-secret" cfg:"cookie_secret"`
-	Domains  []string      `flag:"cookie-domain" cfg:"cookie_domains"`
-	Path     string        `flag:"cookie-path" cfg:"cookie_path"`
-	Expire   time.Duration `flag:"cookie-expire" cfg:"cookie_expire"`
-	Refresh  time.Duration `flag:"cookie-refresh" cfg:"cookie_refresh"`
-	Secure   bool          `flag:"cookie-secure" cfg:"cookie_secure"`
-	HTTPOnly bool          `flag:"cookie-httponly" cfg:"cookie_httponly"`
-	SameSite string        `flag:"cookie-samesite" cfg:"cookie_samesite"`
+	Name                 string        `flag:"cookie-name" cfg:"cookie_name"`
+	Secret               string        `flag:"cookie-secret" cfg:"cookie_secret"`
+	Domains              []string      `flag:"cookie-domain" cfg:"cookie_domains"`
+	Path                 string        `flag:"cookie-path" cfg:"cookie_path"`
+	Expire               time.Duration `flag:"cookie-expire" cfg:"cookie_expire"`
+	Refresh              time.Duration `flag:"cookie-refresh" cfg:"cookie_refresh"`
+	Secure               bool          `flag:"cookie-secure" cfg:"cookie_secure"`
+	HTTPOnly             bool          `flag:"cookie-httponly" cfg:"cookie_httponly"`
+	SameSite             string        `flag:"cookie-samesite" cfg:"cookie_samesite"`
+	CodeValidityDuration time.Duration `flag:"cookie-code-validity-expire" cfg:"cookie_code_validity_expire"`
 }
 
 func cookieFlagSet() *pflag.FlagSet {
@@ -31,6 +32,7 @@ func cookieFlagSet() *pflag.FlagSet {
 	flagSet.Bool("cookie-secure", true, "set secure (HTTPS) cookie flag")
 	flagSet.Bool("cookie-httponly", true, "set HttpOnly cookie flag")
 	flagSet.String("cookie-samesite", "", "set SameSite cookie attribute (ie: \"lax\", \"strict\", \"none\", or \"\"). ")
+	flagSet.String("cookie-code-validity-expire", time.Minute.String(), "set code validity expiry of mock OIDC authorization flow")
 
 	return flagSet
 }
