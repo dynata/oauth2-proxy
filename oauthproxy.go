@@ -722,6 +722,11 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				if err != nil {
 					logger.Printf("Error loading oauth2 session: %v", err)
 					logger.Printf("Trying code from request directly with provider")
+					if !p.setRequestedClientConfigToRequestScope(req, "") {
+						logger.Errorf("Error setting request config for code exchange from provider")
+						rw.WriteHeader(http.StatusInternalServerError)
+						return
+					}
 					session, err = p.redeemCode(req)
 					if err != nil {
 						rw.WriteHeader(http.StatusNotFound)
