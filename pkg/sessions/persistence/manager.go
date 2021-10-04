@@ -65,6 +65,7 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 func (m *Manager) Load(req *http.Request) (*sessions.SessionState, error) {
 	tckt, err := m.decodeMockOauthTokenRequest(req, m.Options)
 	if err != nil || tckt == nil {
+		// cookie will not be preset in barbican API request. So nil ticket will be returned
 		tckt, err = decodeTicketFromRequest(req, m.Options)
 		if err != nil {
 			return nil, err

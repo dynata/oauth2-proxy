@@ -103,9 +103,9 @@ type authServerTokenResponse struct {
 	TokenType             string  `json:"token_type"`
 	IDToken               string  `json:"id_token"`
 	RefreshToken          string  `json:"refresh_token"`
-	RefreshTokenExpiredOn float64 `json:"refresh_expires_in"`
+	RefreshTokenExpiresIn float64 `json:"refresh_expires_in"`
 	AccessToken           string  `json:"access_token"`
-	ExpireIn              float64 `json:"expire_in"`
+	ExpiresIn             float64 `json:"expires_in"`
 	Scope                 string  `json:"scope"`
 	SessionState          string  `json:"session_state"`
 }
@@ -627,46 +627,50 @@ func (p *OAuthProxy) modifyRequestForMockLoginAPI(providerData *providers.Provid
 
 		req.Header.Add("X-Auth-Request-Redirect", req.FormValue("redirect_uri"))
 
-		clients := providerData.Clients[req.FormValue("client_id")]
-		for _, clientConfigs := range clients {
-			// making a copy for request scope
-			config := make(map[string]string)
-			for key, value := range clientConfigs {
-				config[key] = value
-			}
-
-			configClientId, clientIdOk := config["client_id"]
-			_, clientSecretOk := config["client_secret"]
-			_, clientSecretFileOk := config["client_secret_file"]
-			configRedirectUri, redirectUriOk := config["redirect_uri"]
-
-			if clientIdOk && redirectUriOk && (clientSecretOk || clientSecretFileOk) &&
-				configClientId != "" && configClientId == req.FormValue("client_id") &&
-				req.FormValue("response_type") == "code" && configRedirectUri != "" {
-
-				if req.FormValue("scope") != "" {
-					config["scope"] = req.FormValue("scope")
-				}
-				if req.FormValue("acr_values") != "" {
-					config["acr_values"] = req.FormValue("acr_values")
-				}
-				if req.FormValue("prompt") != "" {
-					config["prompt"] = req.FormValue("prompt")
-				}
-				if req.FormValue("approval_prompt") != "" {
-					config["approval_prompt"] = req.FormValue("approval_prompt")
-				}
-
-				if req.FormValue("kc_idp_hint") != "" {
-					config["kc_idp_hint"] = req.FormValue("kc_idp_hint")
-				}
-
-				middlewareapi.GetRequestScope(req).RequestedClientConfig = config
-				middlewareapi.GetRequestScope(req).RequestedClientVerifier = providerData.ClientsVerifiers[configClientId]
-			}
-		}
+		p.updateConfigToRequestScope(providerData, req)
 	}
 	return req
+}
+
+func (p *OAuthProxy) updateConfigToRequestScope(providerData *providers.ProviderData, req *http.Request) {
+	clients := providerData.Clients[req.FormValue("client_id")]
+	for _, clientConfigs := range clients {
+		// making a copy for request scope
+		config := make(map[string]string)
+		for key, value := range clientConfigs {
+			config[key] = value
+		}
+
+		configClientId, clientIdOk := config["client_id"]
+		_, clientSecretOk := config["client_secret"]
+		_, clientSecretFileOk := config["client_secret_file"]
+		configRedirectUri, redirectUriOk := config["redirect_uri"]
+
+		if clientIdOk && redirectUriOk && (clientSecretOk || clientSecretFileOk) &&
+			configClientId != "" && configClientId == req.FormValue("client_id") &&
+			req.FormValue("response_type") == "code" && configRedirectUri != "" {
+
+			if req.FormValue("scope") != "" {
+				config["scope"] = req.FormValue("scope")
+			}
+			if req.FormValue("acr_values") != "" {
+				config["acr_values"] = req.FormValue("acr_values")
+			}
+			if req.FormValue("prompt") != "" {
+				config["prompt"] = req.FormValue("prompt")
+			}
+			if req.FormValue("approval_prompt") != "" {
+				config["approval_prompt"] = req.FormValue("approval_prompt")
+			}
+
+			if req.FormValue("kc_idp_hint") != "" {
+				config["kc_idp_hint"] = req.FormValue("kc_idp_hint")
+			}
+
+			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
+			middlewareapi.GetRequestScope(req).RequestedClientVerifier = providerData.ClientsVerifiers[configClientId]
+		}
+	}
 }
 
 // Mock OIDC login API
@@ -717,7 +721,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				session, err := p.LoadCookiedSession(req)
 				if err != nil {
 					logger.Printf("Error loading oauth2 session: %v", err)
-					logger.Printf("Trying code from request directly with provider : %v", p.provider.Data().ProviderName)
+					logger.Printf("Trying code from request directly with provider")
 					session, err = p.redeemCode(req)
 					if err != nil {
 						rw.WriteHeader(http.StatusNotFound)
@@ -729,9 +733,9 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					TokenType:             session.TokenType,
 					IDToken:               session.IDToken,
 					RefreshToken:          session.RefreshToken,
-					RefreshTokenExpiredOn: session.RefreshExpiresIn,
+					RefreshTokenExpiresIn: session.RefreshExpiresIn,
 					AccessToken:           session.AccessToken,
-					ExpireIn:              session.AccessExpiresIn,
+					ExpiresIn:             session.AccessExpiresIn,
 					Scope:                 session.Scope,
 					SessionState:          session.SessionState,
 				}
@@ -748,23 +752,10 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 			if req.FormValue("client_id") == "" || req.FormValue("refresh_token") == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
-				clients := p.provider.Data().Clients[req.FormValue("client_id")]
-				for _, clientConfigs := range clients {
-					// making a copy for request scope
-					config := make(map[string]string)
-					for key, value := range clientConfigs {
-						config[key] = value
-					}
-
-					configClientId, clientIdOk := config["client_id"]
-					_, clientSecretOk := config["client_secret"]
-					_, clientSecretFileOk := config["client_secret_file"]
-
-					if clientIdOk && (clientSecretOk || clientSecretFileOk) &&
-						configClientId != "" && configClientId == req.FormValue("client_id") {
-						middlewareapi.GetRequestScope(req).RequestedClientConfig = config
-						middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
-					}
+				if !p.setRequestedClientConfigToRequestScope(req, "") {
+					logger.Printf("Error refreshing session: Failed to set client configuration")
+					rw.WriteHeader(http.StatusNotFound)
+					return
 				}
 
 				originalRefreshToken := req.FormValue("refresh_token")
@@ -787,9 +778,9 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					TokenType:             session.TokenType,
 					IDToken:               session.IDToken,
 					RefreshToken:          session.RefreshToken,
-					RefreshTokenExpiredOn: session.RefreshExpiresIn,
+					RefreshTokenExpiresIn: session.RefreshExpiresIn,
 					AccessToken:           session.AccessToken,
-					ExpireIn:              session.AccessExpiresIn,
+					ExpiresIn:             session.AccessExpiresIn,
 					Scope:                 session.Scope,
 					SessionState:          session.SessionState,
 				}
@@ -807,23 +798,10 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				req.FormValue("password") == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
-				clients := p.provider.Data().Clients[req.FormValue("client_id")]
-				for _, clientConfigs := range clients {
-					// making a copy for request scope
-					config := make(map[string]string)
-					for key, value := range clientConfigs {
-						config[key] = value
-					}
-
-					configClientId, clientIdOk := config["client_id"]
-					_, clientSecretOk := config["client_secret"]
-					_, clientSecretFileOk := config["client_secret_file"]
-
-					if clientIdOk && (clientSecretOk || clientSecretFileOk) &&
-						configClientId != "" && configClientId == req.FormValue("client_id") {
-						middlewareapi.GetRequestScope(req).RequestedClientConfig = config
-						middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
-					}
+				if !p.setRequestedClientConfigToRequestScope(req, "") {
+					logger.Printf("Error granting access: Failed to set client configuration")
+					rw.WriteHeader(http.StatusNotFound)
+					return
 				}
 
 				username := req.FormValue("username")
@@ -831,7 +809,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				session, err := p.provider.PerformPasswordGrant(ctx, username, password)
 				if session == nil || err != nil {
-					logger.Printf("Error refreshing session: %v", err)
+					logger.Printf("Error granting access: %v", err)
 					rw.WriteHeader(http.StatusNotFound)
 					return
 				}
@@ -839,9 +817,9 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
 					RefreshToken:          session.RefreshToken,
-					RefreshTokenExpiredOn: session.RefreshExpiresIn,
+					RefreshTokenExpiresIn: session.RefreshExpiresIn,
 					AccessToken:           session.AccessToken,
-					ExpireIn:              session.AccessExpiresIn,
+					ExpiresIn:             session.AccessExpiresIn,
 					Scope:                 session.Scope,
 					SessionState:          session.SessionState,
 				}
@@ -1164,14 +1142,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 
 	nonce, appRedirect, hashedClientId, decodeErr := decodeState(req)
 
-	clientId, err := p.getValidatedClientId(hashedClientId, req)
-	if err != nil {
-		logger.Errorf("Error redeeming code during OAuth2 callback", err)
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if !p.setRequestedClientConfig(req, clientId) {
+	if !p.setRequestedClientConfigToRequestScope(req, hashedClientId) {
 		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 		return
@@ -1253,8 +1224,21 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *OAuthProxy) setRequestedClientConfig(req *http.Request, clientId string) bool {
-	clients := p.provider.Data().Clients[clientId]
+func (p *OAuthProxy) setRequestedClientConfigToRequestScope(req *http.Request, hashedClientId string) bool {
+	var clients []map[string]string
+	var clientId string
+	if hashedClientId != "" {
+		decryptedClientId, err := p.getValidatedClientId(hashedClientId, req)
+		clientId = decryptedClientId
+		if err != nil {
+			return false
+		}
+		clients = p.provider.Data().Clients[clientId]
+	} else {
+		clientId = req.FormValue("client_id")
+		clients = p.provider.Data().Clients[clientId]
+	}
+
 	if len(clients) == 0 {
 		return true
 	}
@@ -1265,8 +1249,19 @@ func (p *OAuthProxy) setRequestedClientConfig(req *http.Request, clientId string
 			config[key] = value
 		}
 
-		configClientId, clientIdOk := config["client_id"]
+		/* configClientId, clientIdOk := config["client_id"]
 		if clientIdOk && configClientId != "" && configClientId == clientId {
+			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
+			middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
+			return true
+		} */
+
+		configClientId, clientIdOk := config["client_id"]
+		_, clientSecretOk := config["client_secret"]
+		_, clientSecretFileOk := config["client_secret_file"]
+
+		if clientIdOk && (clientSecretOk || clientSecretFileOk) &&
+			configClientId != "" && configClientId == clientId {
 			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
 			middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
 			return true
@@ -1278,7 +1273,7 @@ func (p *OAuthProxy) setRequestedClientConfig(req *http.Request, clientId string
 func (p *OAuthProxy) getClientID(req *http.Request) (string, error) {
 	clientID := req.Form.Get("client_id")
 	if clientID == "" {
-		return "", providers.ErrMissingCode
+		return "", errors.New("missing client_id in the request parameters")
 	}
 	return clientID, nil
 }
