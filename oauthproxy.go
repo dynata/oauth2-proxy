@@ -729,6 +729,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					}
 					session, err = p.redeemCode(req)
 					if err != nil {
+						logger.Error("Failed to redeem code from provider --> ", err)
 						rw.WriteHeader(http.StatusNotFound)
 						return
 					}
