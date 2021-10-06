@@ -730,7 +730,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					session, err = p.redeemCode(req)
 					if err != nil {
 						logger.Error("Failed to redeem code from provider --> ", err)
-						rw.WriteHeader(http.StatusNotFound)
+						rw.WriteHeader(http.StatusUnauthorized)
 						return
 					}
 
@@ -760,7 +760,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 			} else {
 				if !p.setRequestedClientConfigToRequestScope(req, "") {
 					logger.Printf("Error refreshing session: Failed to set client configuration")
-					rw.WriteHeader(http.StatusNotFound)
+					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
 
@@ -776,7 +776,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				err := p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 				if err != nil {
 					logger.Printf("Error refreshing session: %v", err)
-					rw.WriteHeader(http.StatusNotFound)
+					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
 
@@ -806,7 +806,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 			} else {
 				if !p.setRequestedClientConfigToRequestScope(req, "") {
 					logger.Printf("Error granting access: Failed to set client configuration")
-					rw.WriteHeader(http.StatusNotFound)
+					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
 
@@ -816,7 +816,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 				session, err := p.provider.PerformPasswordGrant(ctx, username, password)
 				if session == nil || err != nil {
 					logger.Printf("Error granting access: %v", err)
-					rw.WriteHeader(http.StatusNotFound)
+					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
 
@@ -1295,6 +1295,11 @@ func (p *OAuthProxy) redeemCode(req *http.Request) (*sessionsapi.SessionState, e
 	}
 
 	redirectURI := p.getOAuthRedirectURI(req)
+	// Case added to support fallback to provider
+	if req.FormValue("redirect_uri") != "" &&
+		req.FormValue("redirect_uri") != redirectURI {
+		redirectURI = req.FormValue("redirect_uri")
+	}
 	ctx := req.Context()
 	s, err := p.provider.Redeem(ctx, redirectURI, code)
 	if err != nil {

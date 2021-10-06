@@ -134,9 +134,9 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 	if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
 		clientSecret = v
 	}
-	if v, ok := requestedClientConfig["redirect_uri"]; ok && v != redirectURL {
+	/* if v, ok := requestedClientConfig["redirect_uri"]; ok && v != redirectURL {
 		redirectURL = v
-	}
+	} */
 
 	c := oauth2.Config{
 		ClientID:     clientId,
