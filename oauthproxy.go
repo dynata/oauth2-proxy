@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -515,6 +514,30 @@ func (p *OAuthProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	p.preAuthChain.Then(http.HandlerFunc(p.serveHTTP)).ServeHTTP(rw, req)
 }
 
+func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
+	switch path := req.URL.Path; {
+	case path == "/":
+		return true
+	case strings.HasPrefix(path, p.ProxyPrefix):
+		return true
+	// case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
+	// 	return true
+	case path == p.provider.Data().LoginURL.Path &&
+		req.URL.Query().Get("response_type") == "code": // Authorization Endpoint
+		return true
+	case path == p.provider.Data().RedeemURL.Path &&
+		(req.FormValue("grant_type") == "authorization_code" ||
+			req.FormValue("grant_type") == "refresh_token" ||
+			req.FormValue("grant_type") == "password"): // Token Endpoint
+		return true
+	case path == p.provider.Data().LogoutURL.Path: // Logout Endpoint
+		return true
+	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
+		return true
+	}
+	return false
+}
+
 func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Path != p.AuthOnlyPath && strings.HasPrefix(req.URL.Path, p.ProxyPrefix) {
 		prepareNoCache(rw)
@@ -541,16 +564,20 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.AuthOnly(rw, req)
 	case path == p.UserInfoPath:
 		p.UserInfo(rw, req)
-	case path == p.provider.Data().LoginURL.Path: // Authorization Endpoint
+	case path == p.provider.Data().LoginURL.Path && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
 		p.MockLoginRequest(rw, req)
-	case path == p.provider.Data().RedeemURL.Path: // Token Endpoint
+	case path == p.provider.Data().RedeemURL.Path && p.isOauth2ProxySupportedRequest(req): // Token Endpoint
 		p.MockTokenRequest(rw, req)
-	case path == p.provider.Data().LogoutURL.Path: // Logout Endpoint
+	case path == p.provider.Data().LogoutURL.Path && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint
 		p.MockLogoutRequest(rw, req)
-	case path == p.provider.Data().JwksURL.Path: // JwksUri Endpoint
-		p.MockJwksUriRequest(rw, req)
-	case path == p.provider.Data().ChangePasswordURL.Path:
+
+	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
 		p.MockChangePasswordUriRequest(rw, req)
+	case !p.isOauth2ProxySupportedRequest(req):
+		proxyServer, _ := url.Parse(p.provider.Data().IssuerURL.String())
+		proxyServer.Path = ""
+		proxyServerStr := proxyServer.String()
+		ReverseProxy(proxyServerStr, p).ServeHTTP(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -1003,11 +1030,15 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		logoutUrl := p.provider.Data().LogoutURL
 		scheme := req.URL.Scheme
 		host := req.URL.Host
-		if scheme == "" {
-			scheme = "https"
-		}
 		if host == "" {
 			host = req.Host
+		}
+		if scheme == "" {
+			scheme = "https"
+			h, _ := requestutil.SplitHostPort(host)
+			if h == "localhost" {
+				scheme = "http"
+			}
 		}
 		urlHost := fmt.Sprintf("%s://%s", scheme, host)
 
@@ -1026,30 +1057,6 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 
 		http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
 	}
-}
-
-func (p *OAuthProxy) MockJwksUriRequest(rw http.ResponseWriter, req *http.Request) {
-	prepareNoCache(rw)
-
-	c := http.Client{}
-	resp, err := c.Get(p.provider.Data().JwksURL.String())
-
-	if err != nil {
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	rw.Header().Add("Content-Type", "application/json")
-	rw.Write(body)
 }
 
 func (p *OAuthProxy) MockChangePasswordUriRequest(rw http.ResponseWriter, req *http.Request) {
