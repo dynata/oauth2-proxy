@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -23,11 +22,12 @@ const (
 type DebugTransport struct{}
 
 func (DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	dump, err := httputil.DumpRequestOut(req, false)
+	_, err := httputil.DumpRequestOut(req, false)
 	if err != nil {
+		log.Printf("dump upstream request error: %s\n", err)
 		return nil, err
 	}
-	fmt.Println(string(dump))
+	// fmt.Println(string(dump))
 	return http.DefaultTransport.RoundTrip(req)
 }
 
@@ -35,11 +35,12 @@ func modifyResponse(p *OAuthProxy) func(*http.Response) error {
 	return func(resp *http.Response) error {
 		// resp.Header.Set("X-Proxy", "Magical")
 
-		/* dump, err := httputil.DumpResponse(resp, false)
+		_, err := httputil.DumpResponse(resp, false)
 		if err != nil {
+			log.Printf("dump upstream response error: %s\n", err)
 			return err
 		}
-		fmt.Println(string(dump)) */
+		// fmt.Println(string(dump))
 
 		/* if resp.Request.URL.Path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" {
 			body, err := ioutil.ReadAll(resp.Body)
