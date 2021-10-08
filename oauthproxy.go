@@ -1135,23 +1135,21 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 	// dataMap["grant_types_supported"] = []string{"authorization_code", "refresh_token", "password"}
 	// dataMap["response_types_supported"] = []string{"code"}
 
-	var scheme, domain string
-
-	scheme = req.URL.Scheme
+	scheme := req.URL.Scheme
+	host := req.URL.Host
+	if host == "" {
+		host = req.Host
+	}
 	if scheme == "" {
-		host := req.URL.Host
-		if host == "" {
-			host = req.Host
-		}
 		scheme = "https"
 		h, _ := requestutil.SplitHostPort(host)
 		if h == "localhost" {
 			scheme = "http"
 		}
 	}
-	domain = requestutil.GetRequestHost(req)
+	urlHost := fmt.Sprintf("%s://%s", scheme, host)
 	// uri = requestutil.GetRequestURI(req)
-	url := scheme + "://" + domain + p.provider.Data().IssuerURL.Path
+	url := urlHost + p.provider.Data().IssuerURL.Path
 
 	var dataMapkeys []string
 	for k := range dataMap {
