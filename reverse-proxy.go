@@ -33,6 +33,10 @@ func (DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(req)
 }
 
+func errorHandler(res http.ResponseWriter, req *http.Request, err error) {
+	log.Printf("proxy forwarding error: %s\n", err)
+}
+
 func modifyResponse(p *OAuthProxy) func(*http.Response) error {
 	return func(resp *http.Response) error {
 		// resp.Header.Set("X-Proxy", "Magical")
@@ -85,6 +89,8 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// log.Printf("forwarding to -> %s\n", url)
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
+
+	// proxy.Transport = DebugTransport{}
 	proxy.Transport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -98,7 +104,8 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 		ExpectContinueTimeout: 1 * time.Second,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 	}
-	// proxy.Transport = DebugTransport{}
+	proxy.ErrorHandler = errorHandler
+
 	if p != nil {
 		proxy.ModifyResponse = modifyResponse(p)
 	}
