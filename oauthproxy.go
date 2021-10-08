@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -522,6 +523,8 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 		return true
 	// case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
 	// 	return true
+	case path == p.provider.Data().JwksURL.Path:
+		return true
 	case path == p.provider.Data().LoginURL.Path &&
 		req.URL.Query().Get("response_type") == "code": // Authorization Endpoint
 		return true
@@ -570,7 +573,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockTokenRequest(rw, req)
 	case path == p.provider.Data().LogoutURL.Path && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint
 		p.MockLogoutRequest(rw, req)
-
+	case path == p.provider.Data().JwksURL.Path && p.isOauth2ProxySupportedRequest(req): // JwksUri Endpoint
+		p.MockJwksUriRequest(rw, req)
 	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
 		p.MockChangePasswordUriRequest(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
@@ -1057,6 +1061,30 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 
 		http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
 	}
+}
+
+func (p *OAuthProxy) MockJwksUriRequest(rw http.ResponseWriter, req *http.Request) {
+	prepareNoCache(rw)
+
+	c := http.Client{}
+	resp, err := c.Get(p.provider.Data().JwksURL.String())
+
+	if err != nil {
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	rw.Header().Add("Content-Type", "application/json")
+	rw.Write(body)
 }
 
 func (p *OAuthProxy) MockChangePasswordUriRequest(rw http.ResponseWriter, req *http.Request) {
