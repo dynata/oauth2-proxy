@@ -82,17 +82,21 @@ func modifyResponse(p *OAuthProxy) func(*http.Response) error {
 func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// parse the url
 	url, _ := url.Parse(target)
-	log.Printf("forwarding to -> %s\n", url)
+	// log.Printf("forwarding to -> %s\n", url)
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
 	proxy.Transport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
-		Dial: (&net.Dialer{
+		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
-		}).Dial,
-		TLSHandshakeTimeout: 10 * time.Second,
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 	}
 	// proxy.Transport = DebugTransport{}
 	if p != nil {
