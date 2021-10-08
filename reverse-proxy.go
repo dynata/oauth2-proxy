@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -81,7 +82,10 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	log.Printf("forwarding to -> %s\n", url)
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
-	proxy.Transport = DebugTransport{}
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	// proxy.Transport = DebugTransport{}
 	if p != nil {
 		proxy.ModifyResponse = modifyResponse(p)
 	}
