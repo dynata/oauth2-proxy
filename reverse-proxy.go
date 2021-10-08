@@ -3,9 +3,11 @@ package main
 import (
 	"crypto/tls"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 )
 
 var severCount = 0
@@ -84,7 +86,13 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
 	proxy.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 10 * time.Second,
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
 	}
 	// proxy.Transport = DebugTransport{}
 	if p != nil {
