@@ -1137,9 +1137,17 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 
 	var scheme, domain string
 
-	scheme = "http"
-	if req.TLS != nil {
+	scheme = req.URL.Scheme
+	if scheme == "" {
+		host := req.URL.Host
+		if host == "" {
+			host = req.Host
+		}
 		scheme = "https"
+		h, _ := requestutil.SplitHostPort(host)
+		if h == "localhost" {
+			scheme = "http"
+		}
 	}
 	domain = requestutil.GetRequestHost(req)
 	// uri = requestutil.GetRequestURI(req)
