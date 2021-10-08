@@ -521,8 +521,8 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 		return true
 	case strings.HasPrefix(path, p.ProxyPrefix):
 		return true
-	// case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
-	// 	return true
+	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
+		return true
 	case path == p.provider.Data().JwksURL.Path:
 		return true
 	case path == p.provider.Data().LoginURL.Path &&
@@ -577,11 +577,24 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockJwksUriRequest(rw, req)
 	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
 		p.MockChangePasswordUriRequest(rw, req)
+	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
+		p.MockWellKnownUriRequest(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
-		proxyServer, _ := url.Parse(p.provider.Data().IssuerURL.String())
-		proxyServer.Path = ""
-		proxyServerStr := proxyServer.String()
-		ReverseProxy(proxyServerStr, p).ServeHTTP(rw, req)
+		reverseProxyServer, _ := url.Parse(p.provider.Data().IssuerURL.String())
+		reverseProxyServer.Path = ""
+		reverseProxyServerStr := reverseProxyServer.String()
+		ReverseProxy(reverseProxyServerStr, p).ServeHTTP(rw, req)
+
+		/* proxy := goproxy.NewProxyHttpServer()
+		proxy.Verbose = true
+
+		proxy.OnRequest(goproxy.DstHostIs(reverseProxyServerStr)).DoFunc(
+			func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+				r.Header.Set("X-GoProxy", "yxorPoG-X")
+				return r, nil
+			})
+		proxy.ServeHTTP(rw, req) */
+
 	default:
 		p.Proxy(rw, req)
 	}
@@ -1070,7 +1083,8 @@ func (p *OAuthProxy) MockJwksUriRequest(rw http.ResponseWriter, req *http.Reques
 	resp, err := c.Get(p.provider.Data().JwksURL.String())
 
 	if err != nil {
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		logger.Errorf("Error: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -1079,7 +1093,86 @@ func (p *OAuthProxy) MockJwksUriRequest(rw http.ResponseWriter, req *http.Reques
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		logger.Errorf("Error: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Add("Content-Type", "application/json")
+	rw.Write(body)
+}
+
+func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.Request) {
+	prepareNoCache(rw)
+
+	c := http.Client{}
+	resp, err := c.Get(p.provider.Data().IssuerURL.String() + "/.well-known/openid-configuration")
+
+	if err != nil {
+		logger.Errorf("Error: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+
+	err = resp.Body.Close()
+	if err != nil {
+		logger.Errorf("Error: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	///////////////////////
+	var dataMap map[string]interface{}
+	err = json.Unmarshal(body, &dataMap)
+	if err != nil {
+		logger.Errorf("Error: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// dataMap["grant_types_supported"] = []string{"authorization_code", "refresh_token", "password"}
+	// dataMap["response_types_supported"] = []string{"code"}
+
+	var scheme, domain string
+
+	scheme = "http"
+	if req.TLS != nil {
+		scheme = "https"
+	}
+	domain = requestutil.GetRequestHost(req)
+	// uri = requestutil.GetRequestURI(req)
+	url := scheme + "://" + domain + p.provider.Data().IssuerURL.Path
+
+	var dataMapkeys []string
+	for k := range dataMap {
+		dataMapkeys = append(dataMapkeys, k)
+	}
+
+	for _, k := range dataMapkeys {
+		switch dataMap[k].(type) {
+		case string:
+			if strings.Contains(dataMap[k].(string), p.provider.Data().IssuerURL.String()) {
+				s := strings.Replace(dataMap[k].(string), p.provider.Data().IssuerURL.String(), url, -1)
+				dataMap[k] = s
+			}
+		}
+	}
+
+	respBytes, err := json.Marshal(&dataMap)
+	if err != nil {
+		logger.Errorf("Error: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	body = respBytes
+	///////////////////////
+
+	if err != nil {
+		logger.Errorf("Error: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 

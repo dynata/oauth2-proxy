@@ -90,20 +90,21 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
 
-	// proxy.Transport = DebugTransport{}
-	proxy.Transport = &http.Transport{
+	// transport = DebugTransport{}
+	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		ForceAttemptHTTP2:     true,
+		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 	}
+	proxy.Transport = transport
 	proxy.ErrorHandler = errorHandler
 
 	if p != nil {
