@@ -86,7 +86,7 @@ func modifyResponse(p *OAuthProxy) func(*http.Response) error {
 func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// parse the url
 	url, _ := url.Parse(target)
-	// log.Printf("forwarding to -> %s\n", url)
+	log.Printf("forwarding to reverse proxy -> %s\n", url)
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
 
