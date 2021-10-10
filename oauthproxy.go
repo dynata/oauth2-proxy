@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"reflect"
 	"regexp"
 	"strings"
 	"syscall"
@@ -1156,14 +1157,54 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 		dataMapkeys = append(dataMapkeys, k)
 	}
 
-	for _, k := range dataMapkeys {
-		switch dataMap[k].(type) {
-		case string:
-			if strings.Contains(dataMap[k].(string), p.provider.Data().IssuerURL.String()) {
-				s := strings.Replace(dataMap[k].(string), p.provider.Data().IssuerURL.String(), url, -1)
-				dataMap[k] = s
+	var replace func(data interface{}) (interface{}, error)
+	replace = func(data interface{}) (interface{}, error) {
+		switch t := reflect.TypeOf(data).Kind(); t {
+		case reflect.String:
+			if strings.Contains(data.(string), p.provider.Data().IssuerURL.String()) {
+				s := strings.Replace(data.(string), p.provider.Data().IssuerURL.String(), url, -1)
+				return s, nil
+			}
+		case reflect.Slice:
+			data, ok := data.([]interface{})
+			if ok {
+				for i := range data {
+					elem := data[i]
+					s, err := replace(elem)
+					if err != nil {
+						return nil, err
+					}
+					data[i] = s
+				}
+			} else {
+				return nil, errors.New("refelection failed")
+			}
+		case reflect.Map:
+			mapData, ok := data.(map[string]interface{})
+			if ok {
+				for k := range mapData {
+					elem := mapData[k]
+					s, err := replace(elem)
+					if err != nil {
+						return nil, err
+					}
+					mapData[k] = s
+				}
+			} else {
+				return nil, errors.New("refelection failed")
 			}
 		}
+		return data, nil
+	}
+
+	for _, k := range dataMapkeys {
+		v, err := replace(dataMap[k])
+		if err != nil {
+			logger.Errorf("Error: %v", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		dataMap[k] = v
 	}
 
 	respBytes, err := json.Marshal(&dataMap)
