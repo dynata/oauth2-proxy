@@ -38,6 +38,7 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/upstream"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/providers"
+	"github.com/researchnow/pe-go-lib/trace"
 )
 
 const (
@@ -550,6 +551,9 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath{},
 		p.provider.Data().RedeemURL.Path)
 	req = req.Clone(ctx)
+
+	span, ctx := trace.ContextBoundTrace(ctx, "ListProjects")
+	defer span.Finish()
 
 	switch path := req.URL.Path; {
 	case path == p.RobotsPath:

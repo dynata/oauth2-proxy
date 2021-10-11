@@ -11,6 +11,7 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/validation"
+	pe_trace "github.com/researchnow/pe-go-lib/trace"
 	"github.com/spf13/pflag"
 )
 
@@ -18,6 +19,10 @@ func main() {
 	logger.SetFlags(logger.Lshortfile)
 
 	configFlagSet := pflag.NewFlagSet("oauth2-proxy", pflag.ContinueOnError)
+
+	// init tracing
+	tracing, _ := pe_trace.NewTracing()
+	defer tracing.Stop()
 
 	// Because we parse early to determine alpha vs legacy config, we have to
 	// ignore any unknown flags for now
