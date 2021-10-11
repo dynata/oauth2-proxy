@@ -25,12 +25,12 @@ const (
 type DebugTransport struct{}
 
 func (DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	_, err := httputil.DumpRequestOut(req, false)
+	dump, err := httputil.DumpRequestOut(req, false)
 	if err != nil {
 		log.Printf("dump upstream request error: %s\n", err)
 		return nil, err
 	}
-	// fmt.Println(string(dump))
+	fmt.Println(string(dump))
 	return http.DefaultTransport.RoundTrip(req)
 }
 
@@ -42,19 +42,19 @@ func modifyResponse(p *OAuthProxy) func(*http.Response) error {
 	return func(resp *http.Response) error {
 		// resp.Header.Set("X-Proxy", "Magical")
 
-		reqdump, err := httputil.DumpRequestOut(resp.Request, false)
+		/* reqdump, err := httputil.DumpRequestOut(resp.Request, false)
 		if err != nil {
 			log.Printf("dump upstream request error: %s\n", err)
 			return err
 		}
-		fmt.Println(string(reqdump))
+		fmt.Println(string(reqdump)) */
 
-		dump, err := httputil.DumpResponse(resp, false)
+		/* dump, err := httputil.DumpResponse(resp, false)
 		if err != nil {
 			log.Printf("dump upstream response error: %s\n", err)
 			return err
 		}
-		fmt.Println(string(dump))
+		fmt.Println(string(dump)) */
 
 		/* if resp.Request.URL.Path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" {
 			body, err := ioutil.ReadAll(resp.Body)
@@ -93,16 +93,16 @@ func modifyResponse(p *OAuthProxy) func(*http.Response) error {
 
 func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// parse the url
-	url, _ := url.Parse(target)
-	log.Printf("forwarding to reverse proxy -> %s\n", url)
+	targetURL, _ := url.Parse(target)
+	log.Printf("forwarding to reverse proxy -> %s\n", targetURL)
 	// create the reverse proxy
-	proxy := httputil.NewSingleHostReverseProxy(url)
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	director := func(req *http.Request) {
 		req.Header.Add("X-Forwarded-For", p.provider.Data().IssuerURL.Host)
-		req.Header.Add("X-Forwarded-Proto", "https")
-		req.URL.Scheme = "https"
-		req.URL.Host = "localhost"
+		req.Header.Add("X-Forwarded-Proto", targetURL.Scheme)
+		req.URL.Scheme = targetURL.Scheme
+		req.URL.Host = targetURL.Host
 	}
 	// transport = DebugTransport{}
 	transport := &http.Transport{
