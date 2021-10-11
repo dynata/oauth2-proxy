@@ -98,13 +98,21 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
-	director := func(req *http.Request) {
+	/* director := func(req *http.Request) {
 		req.Header.Add("X-Forwarded-For", p.provider.Data().IssuerURL.Host)
 		req.Header.Add("X-Forwarded-Proto", targetURL.Scheme)
 		req.URL.Scheme = targetURL.Scheme
 		req.URL.Host = targetURL.Host
 		req.Host = targetURL.Host
+	} */
+
+	defaultDirector := proxy.Director
+	director := func(req *http.Request) {
+		defaultDirector(req)
+		req.Header.Add("X-Forwarded-For", p.provider.Data().IssuerURL.Host)
+		req.Header.Add("X-Forwarded-Proto", targetURL.Scheme)
 	}
+
 	// transport = DebugTransport{}
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
