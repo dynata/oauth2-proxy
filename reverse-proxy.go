@@ -103,6 +103,7 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 		req.Header.Add("X-Forwarded-Proto", targetURL.Scheme)
 		req.URL.Scheme = targetURL.Scheme
 		req.URL.Host = targetURL.Host
+		req.Host = targetURL.Host
 	}
 	// transport = DebugTransport{}
 	transport := &http.Transport{
