@@ -522,8 +522,8 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 		return true
 	case strings.HasPrefix(path, p.ProxyPrefix):
 		return true
-	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
-		return true
+	// case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
+	// 	return true
 	case path == p.provider.Data().JwksURL.Path:
 		return true
 	case path == p.provider.Data().LoginURL.Path &&
@@ -578,8 +578,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockJwksUriRequest(rw, req)
 	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
 		p.MockChangePasswordUriRequest(rw, req)
-	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
-		p.MockWellKnownUriRequest(rw, req)
+	// case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
+	// 	p.MockWellKnownUriRequest(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyServer, _ := url.Parse(p.provider.Data().IssuerURL.String())
 		reverseProxyServer.Path = ""
