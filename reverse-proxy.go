@@ -98,6 +98,12 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 	// create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
 
+	director := func(req *http.Request) {
+		req.Header.Add("X-Forwarded-For", p.provider.Data().IssuerURL.Host)
+		req.Header.Add("X-Forwarded-Proto", "https")
+		// req.URL.Scheme = "https"
+		// req.URL.Host = req.Host
+	}
 	// transport = DebugTransport{}
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -113,6 +119,7 @@ func ReverseProxy(target string, p *OAuthProxy) *httputil.ReverseProxy {
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 	}
 	proxy.Transport = transport
+	proxy.Director = director
 	proxy.ErrorHandler = errorHandler
 
 	if p != nil {
