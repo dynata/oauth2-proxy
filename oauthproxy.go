@@ -552,7 +552,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.provider.Data().RedeemURL.Path)
 	req = req.Clone(ctx)
 
-	span, ctx := trace.ContextBoundTrace(ctx, "ListProjects")
+	span, ctx := trace.ContextBoundTrace(ctx, req.URL.Path)
 	defer span.Finish()
 
 	switch path := req.URL.Path; {

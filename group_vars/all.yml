@@ -18,3 +18,10 @@ secrets:
   ANSIBLE_SECRET: ansible_secret
 
 envs:
+  TRACING: "true"
+  # used in pe-go-lib tracing
+  DD_TEAM_NAME: "insightsplatform"
+  # used in pe-go-lib tracing
+  DD_BUSINESS_APP: "insightsplatform"
+  # used in pe-go-lib tracing
+  SERVICE_NAME: "oauth-proxy"
