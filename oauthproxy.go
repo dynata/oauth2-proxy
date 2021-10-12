@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/signal"
@@ -92,12 +93,13 @@ type OAuthProxy struct {
 	realClientIPParser    ipapi.RealClientIPParser
 	trustedIPs            *ip.NetSet
 
-	sessionLoader *middleware.StoredSessionLoader
-	sessionChain  alice.Chain
-	headersChain  alice.Chain
-	preAuthChain  alice.Chain
-	pageWriter    pagewriter.Writer
-	server        proxyhttp.Server
+	sessionLoader      *middleware.StoredSessionLoader
+	sessionChain       alice.Chain
+	headersChain       alice.Chain
+	preAuthChain       alice.Chain
+	pageWriter         pagewriter.Writer
+	server             proxyhttp.Server
+	reverseProxyServer *httputil.ReverseProxy
 }
 
 type authServerTokenResponse struct {
@@ -195,6 +197,11 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		return nil, fmt.Errorf("could not build headers chain: %v", err)
 	}
 
+	reverseProxyServerURL, _ := url.Parse(provider.Data().IssuerURL.String())
+	reverseProxyServerURL.Path = ""
+	reverseProxyServerURLString := reverseProxyServerURL.String()
+	reverseProxyServer := NewReverseProxy(reverseProxyServerURLString)
+
 	p := &OAuthProxy{
 		CookieOptions: &opts.Cookie,
 		Validator:     validator,
@@ -227,6 +234,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		headersChain:       headersChain,
 		preAuthChain:       preAuthChain,
 		pageWriter:         pageWriter,
+		reverseProxyServer: reverseProxyServer,
 	}
 
 	if err := p.setupServer(opts); err != nil {
@@ -522,8 +530,8 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 		return true
 	case strings.HasPrefix(path, p.ProxyPrefix):
 		return true
-	// case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
-	// 	return true
+	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration":
+		return true
 	case path == p.provider.Data().JwksURL.Path:
 		return true
 	case path == p.provider.Data().LoginURL.Path &&
@@ -550,6 +558,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath{},
 		p.provider.Data().RedeemURL.Path)
 	req = req.Clone(ctx)
+
+	reverseProxyResponseModifierFunctions := []responseModifiers{} //Append modifier functions if needed
 
 	switch path := req.URL.Path; {
 	case path == p.RobotsPath:
@@ -578,24 +588,10 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockJwksUriRequest(rw, req)
 	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
 		p.MockChangePasswordUriRequest(rw, req)
-	// case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
-	// 	p.MockWellKnownUriRequest(rw, req)
+	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
+		p.MockWellKnownUriRequest(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
-		reverseProxyServer, _ := url.Parse(p.provider.Data().IssuerURL.String())
-		reverseProxyServer.Path = ""
-		reverseProxyServerStr := reverseProxyServer.String()
-		ReverseProxy(reverseProxyServerStr, p).ServeHTTP(rw, req)
-
-		/* proxy := goproxy.NewProxyHttpServer()
-		proxy.Verbose = true
-
-		proxy.OnRequest(goproxy.DstHostIs(reverseProxyServerStr)).DoFunc(
-			func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-				r.Header.Set("X-GoProxy", "yxorPoG-X")
-				return r, nil
-			})
-		proxy.ServeHTTP(rw, req) */
-
+		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -1133,9 +1129,6 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 		return
 	}
 
-	// dataMap["grant_types_supported"] = []string{"authorization_code", "refresh_token", "password"}
-	// dataMap["response_types_supported"] = []string{"code"}
-
 	scheme := req.URL.Scheme
 	host := req.URL.Host
 	if host == "" {
@@ -1206,6 +1199,10 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 		}
 		dataMap[k] = v
 	}
+
+	dataMap["issuer"] = p.provider.Data().IssuerURL.String()
+	// dataMap["grant_types_supported"] = []string{"authorization_code", "refresh_token", "password"}
+	// dataMap["response_types_supported"] = []string{"code"}
 
 	respBytes, err := json.Marshal(&dataMap)
 	if err != nil {
