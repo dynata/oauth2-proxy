@@ -3,6 +3,13 @@ FROM golang:1.16-buster AS builder
 # Copy sources
 WORKDIR $GOPATH/src/github.com/dynata/oauth2-proxy
 
+
+ARG GITHUB_TOKEN
+RUN if [ -z "$GITHUB_TOKEN" ]; then echo "missing GITHUB_TOKEN env var which is needed for asset downloads"; false; fi
+# update git config to use our token for pulling assets
+RUN printf "[url \"https://%s@github.com/\"]\n\tinsteadOf = https://github.com/\n" ${GITHUB_TOKEN} >> /root/.gitconfig
+
+
 # Fetch dependencies
 COPY go.mod go.sum ./
 RUN GO111MODULE=on go mod download
