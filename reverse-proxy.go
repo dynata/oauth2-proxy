@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-type responseModifiers func(rw http.ResponseWriter, req *http.Request, resp *http.Response)
+type responseModifiers func(rw http.ResponseWriter, resp *http.Response)
 
 func errorHandler(res http.ResponseWriter, req *http.Request, err error) {
 	log.Printf("reverse proxy forwarding error: %s\n", err)
@@ -18,10 +18,9 @@ func errorHandler(res http.ResponseWriter, req *http.Request, err error) {
 
 func modifyResponse(modifiers []responseModifiers, rw http.ResponseWriter) func(*http.Response) error {
 	return func(resp *http.Response) error {
-		req := resp.Request
 		for i := range modifiers {
 			modifier := modifiers[i]
-			modifier(rw, req, resp)
+			modifier(rw, resp)
 		}
 		return nil
 	}
