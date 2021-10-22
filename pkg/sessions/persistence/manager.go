@@ -124,6 +124,7 @@ func (m *Manager) decodeMockOauthTokenRequest(req *http.Request, cookieOpts *opt
 					cookieOpts)
 			}
 		}
+		/* Deprecated */
 	} else if userRefreshToken != "" {
 		if mockTokenPath != "" && req.URL.Path == mockTokenPath {
 			return loadSessionFromRefreshToken(

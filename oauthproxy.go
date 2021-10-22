@@ -557,6 +557,10 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath{},
 		p.provider.Data().RedeemURL.Path)
+
+	clientId := p.provider.Data().ClientID
+	ctx = context.WithValue(ctx, "applied_client_id", clientId)
+
 	req = req.Clone(ctx)
 
 	reverseProxyResponseModifierFunctions := []responseModifiers{} //Append modifier functions if needed
@@ -1373,6 +1377,18 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		logger.Errorf("Error with authorization: %v", err)
 	}
+
+	if hashedClientId != "" {
+		clientId, err := p.getClientIdFromSecureHashedClient(hashedClientId, req)
+		if err != nil {
+			logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
+			p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+			return
+		}
+		applied_client_id_ctx := context.WithValue(req.Context(), "applied_client_id", clientId)
+		req = req.Clone(applied_client_id_ctx)
+	}
+
 	if p.Validator(session.Email) && authorized {
 		logger.PrintAuthf(session.Email, req, logger.AuthSuccess, "Authenticated via OAuth2: %s", session)
 		ticketID, err := p.SaveSession(rw, req, session)
@@ -1396,6 +1412,13 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			appRedirect = req.URL.String()
 		}
 		http.Redirect(rw, req, appRedirect, http.StatusFound)
+		// appUrl, _ := url.Parse(appRedirect)
+		// appOriginURL := &url.URL{
+		// 	Scheme: appUrl.Scheme,
+		// 	Host:   appUrl.Host,
+		// }
+		// rw.Header().Add("Content-Type", "text/html;")
+		// rw.Write([]byte(fmt.Sprintf("<script>console.log('sending message...'); window.opener.parent.postMessage({accessToken: '%s'},'%s');</script>", session.AccessToken, appOriginURL.String())))
 	} else {
 		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: unauthorized")
 		p.ErrorPage(rw, req, http.StatusForbidden, "Invalid session: unauthorized")
@@ -1406,7 +1429,7 @@ func (p *OAuthProxy) setRequestedClientConfigToRequestScope(req *http.Request, h
 	var clients []map[string]string
 	var clientId string
 	if hashedClientId != "" {
-		decryptedClientId, err := p.getValidatedClientId(hashedClientId, req)
+		decryptedClientId, err := p.getClientIdFromSecureHashedClient(hashedClientId, req)
 		clientId = decryptedClientId
 		if err != nil {
 			return false
@@ -1426,13 +1449,6 @@ func (p *OAuthProxy) setRequestedClientConfigToRequestScope(req *http.Request, h
 		for key, value := range clientConfigs {
 			config[key] = value
 		}
-
-		/* configClientId, clientIdOk := config["client_id"]
-		if clientIdOk && configClientId != "" && configClientId == clientId {
-			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
-			middlewareapi.GetRequestScope(req).RequestedClientVerifier = p.provider.Data().ClientsVerifiers[configClientId]
-			return true
-		} */
 
 		configClientId, clientIdOk := config["client_id"]
 		_, clientSecretOk := config["client_secret"]
@@ -1772,7 +1788,7 @@ func (p *OAuthProxy) getAuthenticatedSession(rw http.ResponseWriter, req *http.R
 	return session, nil
 }
 
-func (p *OAuthProxy) getValidatedClientId(hashedClientId string, req *http.Request) (string, error) {
+func (p *OAuthProxy) getClientIdFromSecureHashedClient(hashedClientId string, req *http.Request) (string, error) {
 	clients := []string{p.provider.Data().ClientID}
 	for clientId := range p.provider.Data().Clients {
 		clients = append(clients, clientId)

@@ -122,7 +122,12 @@ func decodeUUIDTicket(decodedTicket string, loadUUIDTicket loadFunc, clearUUIDTi
 // decodeTicketFromRequest retrieves a potential ticket cookie from a request
 // and decodes it to a ticket.
 func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
-	requestCookie, err := req.Cookie(cookieOpts.Name)
+	clientId := req.FormValue("client_id")
+	if clientId == "" {
+		clientId = req.Context().Value("applied_client_id").(string)
+	}
+
+	requestCookie, err := req.Cookie(cookieOpts.Name + "|" + clientId)
 	if err != nil {
 		// Don't wrap this error to allow `err == http.ErrNoCookie` checks
 		return nil, err
@@ -237,9 +242,14 @@ func (t *ticket) setCookie(rw http.ResponseWriter, req *http.Request, s *session
 // clearCookie removes any cookies that would be where this ticket
 // would set them
 func (t *ticket) clearCookie(rw http.ResponseWriter, req *http.Request) {
+	clientId := req.FormValue("client_id")
+	if clientId == "" {
+		clientId = req.Context().Value("applied_client_id").(string)
+	}
+
 	http.SetCookie(rw, cookies.MakeCookieFromOptions(
 		req,
-		t.options.Name,
+		t.options.Name+"|"+clientId,
 		"",
 		t.options,
 		time.Hour*-1,
@@ -249,16 +259,21 @@ func (t *ticket) clearCookie(rw http.ResponseWriter, req *http.Request) {
 
 // makeCookie makes a cookie, signing the value if present
 func (t *ticket) makeCookie(req *http.Request, value string, expires time.Duration, now time.Time) (*http.Cookie, error) {
+	clientId := req.FormValue("client_id")
+	if clientId == "" {
+		clientId = req.Context().Value("applied_client_id").(string)
+	}
+
 	if value != "" {
 		var err error
-		value, err = encryption.SignedValue(t.options.Secret, t.options.Name, []byte(value), now)
+		value, err = encryption.SignedValue(t.options.Secret, t.options.Name+"|"+clientId, []byte(value), now)
 		if err != nil {
 			return nil, err
 		}
 	}
 	return cookies.MakeCookieFromOptions(
 		req,
-		t.options.Name,
+		t.options.Name+"|"+clientId,
 		value,
 		t.options,
 		expires,
