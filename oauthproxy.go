@@ -297,6 +297,8 @@ func (p *OAuthProxy) setupServer(opts *options.Options) error {
 func buildPreAuthChain(opts *options.Options) (alice.Chain, error) {
 	chain := alice.New(middleware.NewScope(opts.ReverseProxy, opts.Logging.RequestIDHeader))
 
+	chain = chain.Append(middleware.SetupCORS(IsValidRedirect, opts.GetDefaultAppRedirectURL(), opts.WhitelistDomains))
+
 	if opts.ForceHTTPS {
 		_, httpsPort, err := net.SplitHostPort(opts.Server.SecureBindAddress)
 		if err != nil {
@@ -473,12 +475,12 @@ func (p *OAuthProxy) SaveSession(rw http.ResponseWriter, req *http.Request, s *s
 }
 
 // IsValidRedirect checks whether the redirect URL is whitelisted
-func (p *OAuthProxy) IsValidRedirect(redirect string) bool {
+func IsValidRedirect(redirect string, defaultAppRedirectURL *url.URL, whitelistDomains []string) bool {
 	switch {
 	case redirect == "":
 		// The user didn't specify a redirect, should fallback to `/`
 		return false
-	case redirect == p.defaultAppRedirectURL.String():
+	case redirect == defaultAppRedirectURL.String():
 		return true
 	case strings.HasPrefix(redirect, "/") && !strings.HasPrefix(redirect, "//") && !invalidRedirectRegex.MatchString(redirect):
 		return true
@@ -490,7 +492,7 @@ func (p *OAuthProxy) IsValidRedirect(redirect string) bool {
 		}
 		redirectHostname := redirectURL.Hostname()
 
-		for _, allowedDomain := range p.whitelistDomains {
+		for _, allowedDomain := range whitelistDomains {
 			allowedHost, allowedPort := splitHostPort(allowedDomain)
 			if allowedHost == "" {
 				continue
@@ -518,6 +520,11 @@ func (p *OAuthProxy) IsValidRedirect(redirect string) bool {
 		logger.Printf("Rejecting invalid redirect %q: not an absolute or relative URL", redirect)
 		return false
 	}
+}
+
+// IsValidRedirect checks whether the redirect URL is whitelisted
+func (p *OAuthProxy) IsValidRedirect(redirect string) bool {
+	return IsValidRedirect(redirect, p.defaultAppRedirectURL, p.whitelistDomains)
 }
 
 func (p *OAuthProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -594,6 +601,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockChangePasswordUriRequest(rw, req)
 	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
 		p.MockWellKnownUriRequest(rw, req)
+	case path == fmt.Sprintf("%s/auth/silent", p.UserInfoPath):
+		p.AuthenticateSilently(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
 	default:
@@ -809,6 +818,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					return
 				}
 
+				// Force refresh token approach
 				originalRefreshToken := req.FormValue("refresh_token")
 
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
@@ -824,6 +834,14 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
+
+				// Fetching access token from session approach
+				/* session, err := p.getAuthenticatedSession(rw, req)
+				if err != nil {
+					logger.Printf("Error refreshing session: %v", err)
+					p.errorJSON(rw, http.StatusUnauthorized)
+					return
+				} */
 
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
@@ -887,6 +905,76 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 	} else {
 		rw.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "text/html")
+
+	redirectURI := req.FormValue("redirect_uri")
+	if redirectURI != "" {
+		if !p.IsValidRedirect(redirectURI) {
+			logger.Errorf("redirect uri is invalid")
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	} else {
+		logger.Errorf("redirect uri is missing")
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	appUrl, _ := url.Parse(redirectURI)
+	appOriginURL := &url.URL{
+		Scheme: appUrl.Scheme,
+		Host:   appUrl.Host,
+	}
+
+	session, err := p.getAuthenticatedSession(rw, req)
+	if err != nil {
+		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify({'unauthorized':'true'}),'%s');</script>", appOriginURL.String())
+		// http.Error(rw, iframeUnauthorizedResponse, http.StatusUnauthorized)
+		rw.WriteHeader(http.StatusUnauthorized)
+		rw.Write([]byte(iframeUnauthorizedResponse))
+		return
+	}
+
+	sessionInfo := struct {
+		User                  string   `json:"user"`
+		Email                 string   `json:"email"`
+		Groups                []string `json:"groups,omitempty"`
+		PreferredUsername     string   `json:"preferredUsername,omitempty"`
+		TokenType             string   `json:"token_type,omitempty"`
+		IDToken               string   `json:"id_token,omitempty"`
+		RefreshToken          string   `json:"refresh_token,omitempty"`
+		RefreshTokenExpiresIn float64  `json:"refresh_expires_in,omitempty"`
+		AccessToken           string   `json:"access_token,omitempty"`
+		ExpiresIn             float64  `json:"expires_in,omitempty"`
+		Scope                 string   `json:"scope,omitempty"`
+		SessionState          string   `json:"session_state,omitempty"`
+	}{
+		User:              session.User,
+		Email:             session.Email,
+		Groups:            session.Groups,
+		PreferredUsername: session.PreferredUsername,
+		TokenType:         session.TokenType,
+		IDToken:           session.IDToken,
+		// RefreshToken:          session.RefreshToken,
+		// RefreshTokenExpiresIn: session.RefreshExpiresIn,
+		AccessToken:  session.AccessToken,
+		ExpiresIn:    session.AccessExpiresIn,
+		Scope:        session.Scope,
+		SessionState: session.SessionState,
+	}
+
+	jsonBuilder := new(strings.Builder)
+	err = json.NewEncoder(jsonBuilder).Encode(sessionInfo)
+	if err != nil {
+		logger.Printf("Error encoding user info: %v", err)
+		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+	iframeResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
+	rw.Write([]byte(iframeResponse))
 }
 
 func (p *OAuthProxy) isValidClientId(reqClientId string) bool {
@@ -1001,8 +1089,8 @@ func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 	err = json.NewEncoder(rw).Encode(userInfo)
 	if err != nil {
-		logger.Printf("Error encoding user info: %v", err)
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		logger.Printf("Error encoding user session info: %v", err)
+		p.errorJSON(rw, http.StatusInternalServerError)
 	}
 }
 
@@ -1046,25 +1134,18 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		}
 	} else {
 		logoutUrl := p.provider.Data().LogoutURL
-		scheme := req.URL.Scheme
-		host := req.URL.Host
-		if host == "" {
-			host = req.Host
-		}
+		scheme := requestutil.GetRequestProto(req)
+		host := requestutil.GetRequestHost(req)
 		if scheme == "" {
-			scheme = "https"
-			h, _ := requestutil.SplitHostPort(host)
-			if h == "localhost" {
-				scheme = "http"
-			}
+			scheme = requestutil.GetRequestInferedProto(req)
 		}
 		urlHost := fmt.Sprintf("%s://%s", scheme, host)
 
 		var rdUrl string
 		if redirectURI != "" {
-			rdUrl = urlHost + p.SignOutPath + "?rd=" + redirectURI
+			rdUrl = urlHost + p.SignOutPath + "?rd=" + redirectURI + "&client_id=" + req.FormValue("client_id")
 		} else {
-			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + p.SignInPath
+			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + p.SignInPath + "&client_id=" + req.FormValue("client_id")
 		}
 
 		queries := logoutUrl.Query()
@@ -1133,17 +1214,10 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 		return
 	}
 
-	scheme := req.URL.Scheme
-	host := req.URL.Host
-	if host == "" {
-		host = req.Host
-	}
+	scheme := requestutil.GetRequestProto(req)
+	host := requestutil.GetRequestHost(req)
 	if scheme == "" {
-		scheme = "https"
-		h, _ := requestutil.SplitHostPort(host)
-		if h == "localhost" {
-			scheme = "http"
-		}
+		scheme = requestutil.GetRequestInferedProto(req)
 	}
 	urlHost := fmt.Sprintf("%s://%s", scheme, host)
 	// uri = requestutil.GetRequestURI(req)
@@ -1411,14 +1485,46 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			req.URL.RawQuery = q.Encode()
 			appRedirect = req.URL.String()
 		}
-		http.Redirect(rw, req, appRedirect, http.StatusFound)
-		// appUrl, _ := url.Parse(appRedirect)
-		// appOriginURL := &url.URL{
-		// 	Scheme: appUrl.Scheme,
-		// 	Host:   appUrl.Host,
-		// }
-		// rw.Header().Add("Content-Type", "text/html;")
-		// rw.Write([]byte(fmt.Sprintf("<script>console.log('sending message...'); window.opener.parent.postMessage({accessToken: '%s'},'%s');</script>", session.AccessToken, appOriginURL.String())))
+		// http.Redirect(rw, req, appRedirect, http.StatusFound)
+		appUrl, _ := url.Parse(appRedirect)
+		appOriginURL := &url.URL{
+			Scheme: appUrl.Scheme,
+			Host:   appUrl.Host,
+		}
+
+		sessionInfo := struct {
+			User                  string   `json:"user"`
+			Email                 string   `json:"email"`
+			Groups                []string `json:"groups,omitempty"`
+			PreferredUsername     string   `json:"preferredUsername,omitempty"`
+			TokenType             string   `json:"token_type,omitempty"`
+			IDToken               string   `json:"id_token,omitempty"`
+			RefreshToken          string   `json:"refresh_token,omitempty"`
+			RefreshTokenExpiresIn float64  `json:"refresh_expires_in,omitempty"`
+			AccessToken           string   `json:"access_token,omitempty"`
+			ExpiresIn             float64  `json:"expires_in,omitempty"`
+			Scope                 string   `json:"scope,omitempty"`
+			SessionState          string   `json:"session_state,omitempty"`
+		}{
+			User:                  session.User,
+			Email:                 session.Email,
+			Groups:                session.Groups,
+			PreferredUsername:     session.PreferredUsername,
+			TokenType:             session.TokenType,
+			IDToken:               session.IDToken,
+			RefreshToken:          session.RefreshToken,
+			RefreshTokenExpiresIn: session.RefreshExpiresIn,
+			AccessToken:           session.AccessToken,
+			ExpiresIn:             session.AccessExpiresIn,
+			Scope:                 session.Scope,
+			SessionState:          session.SessionState,
+		}
+
+		rw.Header().Set("Content-Type", "text/html;")
+		jsonBuilder := new(strings.Builder)
+		err = json.NewEncoder(jsonBuilder).Encode(sessionInfo)
+
+		rw.Write([]byte(fmt.Sprintf("<script>window.opener.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
 	} else {
 		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: unauthorized")
 		p.ErrorPage(rw, req, http.StatusForbidden, "Invalid session: unauthorized")

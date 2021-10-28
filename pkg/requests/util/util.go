@@ -23,6 +23,20 @@ func GetRequestProto(req *http.Request) string {
 	return proto
 }
 
+// GetRequestProto returns the infered request scheme
+func GetRequestInferedProto(req *http.Request) string {
+	proto := GetRequestProto(req)
+	host := GetRequestHost(req)
+	if proto == "" {
+		proto = "https"
+		h, _ := SplitHostPort(host)
+		if h == "localhost" {
+			proto = "http"
+		}
+	}
+	return proto
+}
+
 // GetRequestHost returns the request host header or X-Forwarded-Host if
 // present and the request is proxied.
 func GetRequestHost(req *http.Request) string {
