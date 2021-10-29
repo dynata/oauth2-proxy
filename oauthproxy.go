@@ -295,7 +295,9 @@ func (p *OAuthProxy) setupServer(opts *options.Options) error {
 // the OAuth2 Proxy authentication logic kicks in.
 // For example forcing HTTPS or health checks.
 func buildPreAuthChain(opts *options.Options) (alice.Chain, error) {
-	chain := alice.New(middleware.NewScope(opts.ReverseProxy, opts.Logging.RequestIDHeader))
+	// chain := alice.New(middleware.NewScope(opts.ReverseProxy, opts.Logging.RequestIDHeader))
+
+	chain := alice.New(middleware.NewScopeUsingOptions(opts))
 
 	chain = chain.Append(middleware.SetupCORS(IsValidRedirect, opts.GetDefaultAppRedirectURL(), opts.WhitelistDomains))
 
@@ -1143,16 +1145,21 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 
 		var rdUrl string
 		if redirectURI != "" {
-			rdUrl = urlHost + p.SignOutPath + "?rd=" + redirectURI + "&client_id=" + req.FormValue("client_id")
+			rdUrl = urlHost + p.SignOutPath + "?rd=" + redirectURI
 		} else {
-			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + p.SignInPath + "&client_id=" + req.FormValue("client_id")
+			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + p.SignInPath
+		}
+
+		clientId := req.FormValue("client_id")
+		if clientId != "" {
+			rdUrl = rdUrl + "&client_id=" + req.FormValue("client_id")
 		}
 
 		queries := logoutUrl.Query()
 		queries.Set("redirect_uri", rdUrl)
 		logoutUrl.RawQuery = queries.Encode()
 
-		logger.Errorf("Redirect URL: %v", logoutUrl)
+		logger.Printf("Redirect URL: %v", logoutUrl)
 
 		http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
 	}

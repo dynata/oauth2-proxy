@@ -43,6 +43,8 @@ type RequestScope struct {
 	// Upstream tracks which upstream was used for this request
 	Upstream string
 
+	AllClientIDs []string
+
 	RequestedClientConfig map[string]string
 
 	RequestedClientVerifier *oidc.IDTokenVerifier

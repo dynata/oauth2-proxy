@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 )
@@ -83,6 +84,23 @@ func (m *Manager) Load(req *http.Request) (*sessions.SessionState, error) {
 // Clear clears any saved session information for a given ticket cookie.
 // Then it clears all session data for that ticket in the Store.
 func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
+	scope := middleware.GetRequestScope(req)
+	clientId := req.FormValue("client_id")
+	if clientId == "" {
+		// clientId = req.Context().Value("applied_client_id").(string)
+		for _, clientId := range scope.AllClientIDs {
+			err := m.clearCookieAndSession(rw, req, clientId)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	} else {
+		return m.clearCookieAndSession(rw, req, clientId)
+	}
+}
+
+func (m *Manager) clearCookieAndSession(rw http.ResponseWriter, req *http.Request, clientId string) error {
 	tckt, err := decodeTicketFromRequest(req, m.Options)
 	if err != nil {
 		// Always clear the cookie, even when we can't load a cookie from
@@ -90,7 +108,7 @@ func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
 		tckt = &ticket{
 			options: m.Options,
 		}
-		tckt.clearCookie(rw, req)
+		tckt.clearCookie(rw, req, clientId)
 		// Don't raise an error if we didn't have a Cookie
 		if err == http.ErrNoCookie {
 			return nil
@@ -98,7 +116,7 @@ func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
 		return fmt.Errorf("error decoding ticket to clear session: %v", err)
 	}
 
-	tckt.clearCookie(rw, req)
+	tckt.clearCookie(rw, req, clientId)
 	return tckt.clearSession(func(key string) error {
 		return m.Store.Clear(req.Context(), key)
 	})

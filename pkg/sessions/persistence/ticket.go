@@ -241,12 +241,7 @@ func (t *ticket) setCookie(rw http.ResponseWriter, req *http.Request, s *session
 
 // clearCookie removes any cookies that would be where this ticket
 // would set them
-func (t *ticket) clearCookie(rw http.ResponseWriter, req *http.Request) {
-	clientId := req.FormValue("client_id")
-	if clientId == "" {
-		clientId = req.Context().Value("applied_client_id").(string)
-	}
-
+func (t *ticket) clearCookie(rw http.ResponseWriter, req *http.Request, clientId string) {
 	http.SetCookie(rw, cookies.MakeCookieFromOptions(
 		req,
 		t.options.Name+"|"+clientId,
