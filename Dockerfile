@@ -3,7 +3,7 @@ FROM golang:1.16-buster AS builder
 # Copy sources
 WORKDIR $GOPATH/src/github.com/dynata/oauth2-proxy
 
-
+ARG GOPRIVATE="github.com/dynata/*,github.com/researchnow/*"
 ARG GITHUB_TOKEN
 RUN if [ -z "$GITHUB_TOKEN" ]; then echo "missing GITHUB_TOKEN env var which is needed for asset downloads"; false; fi
 # update git config to use our token for pulling assets
