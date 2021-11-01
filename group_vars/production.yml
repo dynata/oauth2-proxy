@@ -1,0 +1,4 @@
+envs:
+  APP_ENV: production
+
+ingress_additional_allowed_domains: ["oauth.platform.dynata.com"]
