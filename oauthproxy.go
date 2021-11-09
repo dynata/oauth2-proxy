@@ -953,6 +953,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		ExpiresIn             float64  `json:"expires_in,omitempty"`
 		Scope                 string   `json:"scope,omitempty"`
 		SessionState          string   `json:"session_state,omitempty"`
+		MessageType           string   `json:"message_type,omitempty"`
 	}{
 		User:              session.User,
 		Email:             session.Email,
@@ -966,6 +967,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		ExpiresIn:    session.AccessExpiresIn,
 		Scope:        session.Scope,
 		SessionState: session.SessionState,
+		MessageType:  constants.SilentAuthMessageType,
 	}
 
 	jsonBuilder := new(strings.Builder)
@@ -1512,6 +1514,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			ExpiresIn             float64  `json:"expires_in,omitempty"`
 			Scope                 string   `json:"scope,omitempty"`
 			SessionState          string   `json:"session_state,omitempty"`
+			MessageType           string   `json:"message_type,omitempty"`
 		}{
 			User:                  session.User,
 			Email:                 session.Email,
@@ -1525,6 +1528,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			ExpiresIn:             session.AccessExpiresIn,
 			Scope:                 session.Scope,
 			SessionState:          session.SessionState,
+			MessageType:           constants.AuthMessageType,
 		}
 
 		rw.Header().Set("Content-Type", "text/html;")
