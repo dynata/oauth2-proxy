@@ -940,6 +940,24 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	// renew access token
+
+	originalRefreshToken := session.RefreshToken
+
+	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
+	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, session.RefreshToken)
+
+	req = req.Clone(ctx)
+
+	session = &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
+
+	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
+	if err != nil {
+		logger.Printf("Error refreshing session: %v", err)
+		rw.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	sessionInfo := struct {
 		User                  string   `json:"user"`
 		Email                 string   `json:"email"`
