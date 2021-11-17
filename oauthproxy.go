@@ -607,7 +607,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockWellKnownUriRequest(rw, req)
 	case path == fmt.Sprintf("%s/auth/silent", p.UserInfoPath):
 		p.AuthenticateSilently(rw, req)
-	case path == p.CheckSessionPath:
+	case path == fmt.Sprintf("%s/auth/check", p.UserInfoPath):
 		p.CheckSession(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
@@ -1005,6 +1005,8 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 
 func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "text/html")
+
+	logger.Printf("check session")
 
 	redirectURI := req.FormValue("redirect_uri")
 	if redirectURI != "" {
