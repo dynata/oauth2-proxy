@@ -77,6 +77,7 @@ type OAuthProxy struct {
 	OAuthCallbackPath string
 	AuthOnlyPath      string
 	UserInfoPath      string
+	CheckSessionPath  string
 
 	allowedRoutes         []allowedRoute
 	redirectURL           *url.URL // the url to receive requests at
@@ -213,6 +214,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		OAuthCallbackPath: fmt.Sprintf("%s/callback", opts.ProxyPrefix),
 		AuthOnlyPath:      fmt.Sprintf("%s/auth", opts.ProxyPrefix),
 		UserInfoPath:      fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
+		CheckSessionPath:  fmt.Sprint("%s/check_session", opts.ProxyPrefix),
 
 		ProxyPrefix:           opts.ProxyPrefix,
 		provider:              provider,
@@ -605,6 +607,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockWellKnownUriRequest(rw, req)
 	case path == fmt.Sprintf("%s/auth/silent", p.UserInfoPath):
 		p.AuthenticateSilently(rw, req)
+	case path == p.CheckSessionPath:
+		p.CheckSession(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
 	default:
@@ -955,6 +959,78 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 	if err != nil {
 		logger.Printf("Error refreshing session: %v", err)
 		rw.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	sessionInfo := struct {
+		User                  string   `json:"user"`
+		Email                 string   `json:"email"`
+		Groups                []string `json:"groups,omitempty"`
+		PreferredUsername     string   `json:"preferredUsername,omitempty"`
+		TokenType             string   `json:"token_type,omitempty"`
+		IDToken               string   `json:"id_token,omitempty"`
+		RefreshToken          string   `json:"refresh_token,omitempty"`
+		RefreshTokenExpiresIn float64  `json:"refresh_expires_in,omitempty"`
+		AccessToken           string   `json:"access_token,omitempty"`
+		ExpiresIn             float64  `json:"expires_in,omitempty"`
+		Scope                 string   `json:"scope,omitempty"`
+		SessionState          string   `json:"session_state,omitempty"`
+		MessageType           string   `json:"message_type,omitempty"`
+	}{
+		User:              session.User,
+		Email:             session.Email,
+		Groups:            session.Groups,
+		PreferredUsername: session.PreferredUsername,
+		TokenType:         session.TokenType,
+		IDToken:           session.IDToken,
+		// RefreshToken:          session.RefreshToken,
+		// RefreshTokenExpiresIn: session.RefreshExpiresIn,
+		AccessToken:  session.AccessToken,
+		ExpiresIn:    session.AccessExpiresIn,
+		Scope:        session.Scope,
+		SessionState: session.SessionState,
+		MessageType:  constants.SilentAuthMessageType,
+	}
+
+	jsonBuilder := new(strings.Builder)
+	err = json.NewEncoder(jsonBuilder).Encode(sessionInfo)
+	if err != nil {
+		logger.Printf("Error encoding user info: %v", err)
+		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+	iframeResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
+	rw.Write([]byte(iframeResponse))
+}
+
+func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "text/html")
+
+	redirectURI := req.FormValue("redirect_uri")
+	if redirectURI != "" {
+		if !p.IsValidRedirect(redirectURI) {
+			logger.Errorf("redirect uri is invalid")
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	} else {
+		logger.Errorf("redirect uri is missing")
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	appUrl, _ := url.Parse(redirectURI)
+	appOriginURL := &url.URL{
+		Scheme: appUrl.Scheme,
+		Host:   appUrl.Host,
+	}
+
+	session, err := p.getAuthenticatedSession(rw, req)
+	if err != nil {
+		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify({'unauthorized':'true'}),'%s');</script>", appOriginURL.String())
+		// http.Error(rw, iframeUnauthorizedResponse, http.StatusUnauthorized)
+		rw.WriteHeader(http.StatusUnauthorized)
+		rw.Write([]byte(iframeUnauthorizedResponse))
 		return
 	}
 
