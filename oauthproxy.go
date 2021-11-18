@@ -1446,7 +1446,7 @@ func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	rw.Write([]byte(fmt.Sprintf("<script>window.opener.parent.postMessage(%s,'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
+	rw.Write([]byte(fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
 
 }
 
