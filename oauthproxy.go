@@ -1425,7 +1425,29 @@ func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 		return
 	}
-	http.Redirect(rw, req, redirect, http.StatusFound)
+	// http.Redirect(rw, req, redirect, http.StatusFound)
+	appUrl, _ := url.Parse(redirect)
+	appOriginURL := &url.URL{
+		Scheme: appUrl.Scheme,
+		Host:   appUrl.Host,
+	}
+
+	sessionInfo := struct {
+		MessageType string `json:"message_type,omitempty"`
+	}{
+		MessageType: constants.LogoutMessageType,
+	}
+
+	jsonBuilder := new(strings.Builder)
+	err = json.NewEncoder(jsonBuilder).Encode(sessionInfo)
+	if err != nil {
+		logger.Printf("Error encoding user info: %v", err)
+		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	rw.Write([]byte(fmt.Sprintf("<script>window.opener.parent.postMessage(%s,'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
+
 }
 
 // OAuthStart starts the OAuth2 authentication flow

@@ -7,7 +7,8 @@ type ContextIsMockOauthTokenRequestCall struct{}
 type ContextSkipIDTokenValidation struct{}
 
 const (
-	AuthMessageType       string = "AUTHENTITCATION"
-	SilentAuthMessageType        = "SILENT_AUTHENTICATION"
-	LogoutMessageType            = "LOGOUT"
+	AuthMessageType         string = "AUTHENTITCATION"
+	SilentAuthMessageType          = "SILENT_AUTHENTICATION"
+	LogoutMessageType              = "LOGOUT"
+	CheckSessionMessageType        = "CHECK_SESSION"
 )
