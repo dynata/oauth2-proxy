@@ -1155,7 +1155,7 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 		ExpiresIn:    session.AccessExpiresIn,
 		Scope:        session.Scope,
 		SessionState: session.SessionState,
-		MessageType:  constants.SilentAuthMessageType,
+		MessageType:  constants.CheckSessionMessageType,
 	}
 
 	jsonBuilder := new(strings.Builder)
