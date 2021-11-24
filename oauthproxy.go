@@ -1388,7 +1388,7 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 
 		// http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
 
-		appRedirectHandler(rw, req)
+		appRedirectHandler(rw, req, logoutUrl.String())
 	}
 }
 
