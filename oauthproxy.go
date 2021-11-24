@@ -1384,9 +1384,11 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		queries.Set("redirect_uri", rdUrl)
 		logoutUrl.RawQuery = queries.Encode()
 
-		logger.Printf("Redirect URL: %v", logoutUrl)
+		// logger.Printf("Redirect URL: %v", logoutUrl)
 
-		http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
+		// http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
+
+		appRedirectHandler(rw, req)
 	}
 }
 
