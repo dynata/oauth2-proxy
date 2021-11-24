@@ -7,6 +7,7 @@ type ContextIsMockOauthTokenRequestCall struct{}
 type ContextSkipIDTokenValidation struct{}
 
 const (
+	RedirectLibHeader              = "X-Redirect-URI-Lib"
 	AuthMessageType         string = "AUTHENTITCATION"
 	SilentAuthMessageType          = "SILENT_AUTHENTICATION"
 	LogoutMessageType              = "LOGOUT"

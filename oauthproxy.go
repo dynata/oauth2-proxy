@@ -70,14 +70,16 @@ type OAuthProxy struct {
 	CookieOptions *options.Cookie
 	Validator     func(string) bool
 
-	RobotsPath        string
-	SignInPath        string
-	SignOutPath       string
-	OAuthStartPath    string
-	OAuthCallbackPath string
-	AuthOnlyPath      string
-	UserInfoPath      string
-	CheckSessionPath  string
+	RobotsPath           string
+	SignInPath           string
+	SignOutPath          string
+	OAuthStartPath       string
+	OAuthCallbackPath    string
+	OAuthCallbackLibPath string
+	AuthOnlyPath         string
+	UserInfoPath         string
+	CheckSessionPath     string
+	SilentAuthPath       string
 
 	allowedRoutes         []allowedRoute
 	redirectURL           *url.URL // the url to receive requests at
@@ -207,14 +209,16 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		CookieOptions: &opts.Cookie,
 		Validator:     validator,
 
-		RobotsPath:        "/robots.txt",
-		SignInPath:        fmt.Sprintf("%s/sign_in", opts.ProxyPrefix),
-		SignOutPath:       fmt.Sprintf("%s/sign_out", opts.ProxyPrefix),
-		OAuthStartPath:    fmt.Sprintf("%s/start", opts.ProxyPrefix),
-		OAuthCallbackPath: fmt.Sprintf("%s/callback", opts.ProxyPrefix),
-		AuthOnlyPath:      fmt.Sprintf("%s/auth", opts.ProxyPrefix),
-		UserInfoPath:      fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
-		CheckSessionPath:  fmt.Sprint("%s/check_session", opts.ProxyPrefix),
+		RobotsPath:           "/robots.txt",
+		SignInPath:           fmt.Sprintf("%s/sign_in", opts.ProxyPrefix),
+		SignOutPath:          fmt.Sprintf("%s/sign_out", opts.ProxyPrefix),
+		OAuthStartPath:       fmt.Sprintf("%s/start", opts.ProxyPrefix),
+		OAuthCallbackPath:    fmt.Sprintf("%s/callback", opts.ProxyPrefix),
+		OAuthCallbackLibPath: fmt.Sprintf("%s/callback/lib", opts.ProxyPrefix),
+		AuthOnlyPath:         fmt.Sprintf("%s/auth", opts.ProxyPrefix),
+		UserInfoPath:         fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
+		CheckSessionPath:     fmt.Sprintf("%s/lib/check_session", opts.ProxyPrefix),
+		SilentAuthPath:       fmt.Sprintf("%s/lib/silent", opts.ProxyPrefix),
 
 		ProxyPrefix:           opts.ProxyPrefix,
 		provider:              provider,
@@ -545,7 +549,7 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 		return true
 	case path == p.provider.Data().JwksURL.Path:
 		return true
-	case path == p.provider.Data().LoginURL.Path &&
+	case (path == p.provider.Data().LoginURL.Path || path == p.provider.Data().LoginURL.Path+"/lib") &&
 		req.URL.Query().Get("response_type") == "code": // Authorization Endpoint
 		return true
 	case path == p.provider.Data().RedeemURL.Path &&
@@ -553,7 +557,7 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 			req.FormValue("grant_type") == "refresh_token" ||
 			req.FormValue("grant_type") == "password"): // Token Endpoint
 		return true
-	case path == p.provider.Data().LogoutURL.Path: // Logout Endpoint
+	case path == p.provider.Data().LogoutURL.Path || path == p.provider.Data().LogoutURL.Path+"/lib": // Logout Endpoint
 		return true
 	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
 		return true
@@ -588,26 +592,114 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	case path == p.OAuthStartPath:
 		p.OAuthStart(rw, req)
 	case path == p.OAuthCallbackPath:
-		p.OAuthCallback(rw, req)
+		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+			var appRedirect string = params[0].(string)
+			http.Redirect(rw, req, appRedirect, http.StatusFound)
+		}
+		p.OAuthCallback(rw, req, p.OAuthCallbackPath, appRedirectHandler)
+	case path == p.OAuthCallbackLibPath:
+		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+			var appRedirect string = params[0].(string)
+			appUrl, _ := url.Parse(appRedirect)
+			appOriginURL := &url.URL{
+				Scheme: appUrl.Scheme,
+				Host:   appUrl.Host,
+			}
+
+			if len(params) < 2 {
+				return
+			}
+
+			var session *sessionsapi.SessionState = params[1].(*sessionsapi.SessionState)
+
+			sessionInfo := struct {
+				User                  string   `json:"user"`
+				Email                 string   `json:"email"`
+				Groups                []string `json:"groups,omitempty"`
+				PreferredUsername     string   `json:"preferredUsername,omitempty"`
+				TokenType             string   `json:"token_type,omitempty"`
+				IDToken               string   `json:"id_token,omitempty"`
+				RefreshToken          string   `json:"refresh_token,omitempty"`
+				RefreshTokenExpiresIn float64  `json:"refresh_expires_in,omitempty"`
+				AccessToken           string   `json:"access_token,omitempty"`
+				ExpiresIn             float64  `json:"expires_in,omitempty"`
+				Scope                 string   `json:"scope,omitempty"`
+				SessionState          string   `json:"session_state,omitempty"`
+				MessageType           string   `json:"message_type,omitempty"`
+			}{
+				User:                  session.User,
+				Email:                 session.Email,
+				Groups:                session.Groups,
+				PreferredUsername:     session.PreferredUsername,
+				TokenType:             session.TokenType,
+				IDToken:               session.IDToken,
+				RefreshToken:          session.RefreshToken,
+				RefreshTokenExpiresIn: session.RefreshExpiresIn,
+				AccessToken:           session.AccessToken,
+				ExpiresIn:             session.AccessExpiresIn,
+				Scope:                 session.Scope,
+				SessionState:          session.SessionState,
+				MessageType:           constants.AuthMessageType,
+			}
+
+			rw.Header().Set("Content-Type", "text/html;")
+			jsonBuilder := new(strings.Builder)
+			json.NewEncoder(jsonBuilder).Encode(sessionInfo)
+
+			rw.Write([]byte(fmt.Sprintf("<script>window.opener.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
+		}
+		p.OAuthCallback(rw, req, p.OAuthCallbackLibPath, appRedirectHandler)
 	case path == p.AuthOnlyPath:
 		p.AuthOnly(rw, req)
 	case path == p.UserInfoPath:
 		p.UserInfo(rw, req)
 	case path == p.provider.Data().LoginURL.Path && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
-		p.MockLoginRequest(rw, req)
+		p.MockLoginRequest(rw, req, false)
+	case path == p.provider.Data().LoginURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
+		p.MockLoginRequest(rw, req, true)
 	case path == p.provider.Data().RedeemURL.Path && p.isOauth2ProxySupportedRequest(req): // Token Endpoint
 		p.MockTokenRequest(rw, req)
 	case path == p.provider.Data().LogoutURL.Path && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint
-		p.MockLogoutRequest(rw, req)
+		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+			var appRedirect string = params[0].(string)
+			http.Redirect(rw, req, appRedirect, http.StatusFound)
+		}
+		p.MockLogoutRequest(rw, req, appRedirectHandler)
+	case path == p.provider.Data().LogoutURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint
+		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+			var appRedirect string = params[0].(string)
+			appUrl, _ := url.Parse(appRedirect)
+			appOriginURL := &url.URL{
+				Scheme: appUrl.Scheme,
+				Host:   appUrl.Host,
+			}
+
+			sessionInfo := struct {
+				MessageType string `json:"message_type,omitempty"`
+			}{
+				MessageType: constants.LogoutMessageType,
+			}
+
+			jsonBuilder := new(strings.Builder)
+			err := json.NewEncoder(jsonBuilder).Encode(sessionInfo)
+			if err != nil {
+				logger.Printf("Error encoding user info: %v", err)
+				http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+				return
+			}
+
+			rw.Write([]byte(fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
+		}
+		p.MockLogoutRequest(rw, req, appRedirectHandler)
 	case path == p.provider.Data().JwksURL.Path && p.isOauth2ProxySupportedRequest(req): // JwksUri Endpoint
 		p.MockJwksUriRequest(rw, req)
 	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
 		p.MockChangePasswordUriRequest(rw, req)
 	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
 		p.MockWellKnownUriRequest(rw, req)
-	case path == fmt.Sprintf("%s/auth/silent", p.UserInfoPath):
+	case path == p.SilentAuthPath:
 		p.AuthenticateSilently(rw, req)
-	case path == fmt.Sprintf("%s/auth/check", p.UserInfoPath):
+	case path == p.CheckSessionPath:
 		p.CheckSession(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
@@ -734,7 +826,7 @@ func (p *OAuthProxy) updateConfigToRequestScope(providerData *providers.Provider
 }
 
 // Mock OIDC login API
-func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request, isLibCall bool) {
 	reqClientId := req.FormValue("client_id")
 	reqRedirect := req.FormValue("redirect_uri")
 
@@ -752,7 +844,7 @@ func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request)
 		return
 	}
 	req = p.modifyRequestForMockLoginAPI(p.provider.Data(), req)
-	p.OAuthStart(rw, req)
+	p.OAuthStart(rw, req, isLibCall)
 }
 
 // Mock Token API
@@ -1194,7 +1286,7 @@ func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request, appRedirectHandler appRedirectHandlerFunc) {
 	var redirectURI string
 
 	if req.FormValue("redirect_uri") != "" {
@@ -1411,9 +1503,11 @@ func (p *OAuthProxy) MockChangePasswordUriRequest(rw http.ResponseWriter, req *h
 	http.Redirect(rw, req, p.provider.Data().ChangePasswordURL.String(), http.StatusFound)
 }
 
+type appRedirectHandlerFunc func(rw http.ResponseWriter, req *http.Request, params ...interface{})
+
 // SignOut sends a response to clear the authentication cookie
 func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
-	redirect, err := p.getAppRedirect(req)
+	appRedirect, err := p.getAppRedirect(req)
 	if err != nil {
 		logger.Errorf("Error obtaining redirect: %v", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
@@ -1425,33 +1519,11 @@ func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// http.Redirect(rw, req, redirect, http.StatusFound)
-	appUrl, _ := url.Parse(redirect)
-	appOriginURL := &url.URL{
-		Scheme: appUrl.Scheme,
-		Host:   appUrl.Host,
-	}
-
-	sessionInfo := struct {
-		MessageType string `json:"message_type,omitempty"`
-	}{
-		MessageType: constants.LogoutMessageType,
-	}
-
-	jsonBuilder := new(strings.Builder)
-	err = json.NewEncoder(jsonBuilder).Encode(sessionInfo)
-	if err != nil {
-		logger.Printf("Error encoding user info: %v", err)
-		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return
-	}
-
-	rw.Write([]byte(fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
-
+	http.Redirect(rw, req, appRedirect, http.StatusFound)
 }
 
 // OAuthStart starts the OAuth2 authentication flow
-func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
 	prepareNoCache(rw)
 
 	csrf, err := cookies.NewCSRF(p.CookieOptions)
@@ -1486,6 +1558,14 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	callbackRedirect := p.getOAuthRedirectURI(req)
+
+	if len(params) >= 1 {
+		isLibCall := params[0].(bool)
+		if isLibCall {
+			callbackRedirect = callbackRedirect + "/lib"
+		}
+	}
+
 	loginURL := p.provider.GetLoginURL(
 		req.Context(),
 		callbackRedirect,
@@ -1504,7 +1584,7 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 
 // OAuthCallback is the OAuth2 authentication flow callback that finishes the
 // OAuth2 authentication flow
-func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
 	remoteAddr := ip.GetClientString(p.realClientIPParser, req, true)
 
 	// finish the oauth cycle
@@ -1529,6 +1609,14 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if len(params) >= 1 {
+		redirectURI := params[0].(string)
+		if redirectURI == p.OAuthCallbackLibPath {
+			callbackRedirect := p.getOAuthRedirectURI(req)
+			req.Header.Set(constants.RedirectLibHeader, callbackRedirect+"/lib")
+		}
 	}
 
 	session, err := p.redeemCode(req)
@@ -1612,48 +1700,12 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			req.URL.RawQuery = q.Encode()
 			appRedirect = req.URL.String()
 		}
-		// http.Redirect(rw, req, appRedirect, http.StatusFound)
-		appUrl, _ := url.Parse(appRedirect)
-		appOriginURL := &url.URL{
-			Scheme: appUrl.Scheme,
-			Host:   appUrl.Host,
+
+		if len(params) >= 2 {
+			var appRedirectHandler appRedirectHandlerFunc = params[1].(appRedirectHandlerFunc)
+			appRedirectHandler(rw, req, appRedirect, session)
 		}
 
-		sessionInfo := struct {
-			User                  string   `json:"user"`
-			Email                 string   `json:"email"`
-			Groups                []string `json:"groups,omitempty"`
-			PreferredUsername     string   `json:"preferredUsername,omitempty"`
-			TokenType             string   `json:"token_type,omitempty"`
-			IDToken               string   `json:"id_token,omitempty"`
-			RefreshToken          string   `json:"refresh_token,omitempty"`
-			RefreshTokenExpiresIn float64  `json:"refresh_expires_in,omitempty"`
-			AccessToken           string   `json:"access_token,omitempty"`
-			ExpiresIn             float64  `json:"expires_in,omitempty"`
-			Scope                 string   `json:"scope,omitempty"`
-			SessionState          string   `json:"session_state,omitempty"`
-			MessageType           string   `json:"message_type,omitempty"`
-		}{
-			User:                  session.User,
-			Email:                 session.Email,
-			Groups:                session.Groups,
-			PreferredUsername:     session.PreferredUsername,
-			TokenType:             session.TokenType,
-			IDToken:               session.IDToken,
-			RefreshToken:          session.RefreshToken,
-			RefreshTokenExpiresIn: session.RefreshExpiresIn,
-			AccessToken:           session.AccessToken,
-			ExpiresIn:             session.AccessExpiresIn,
-			Scope:                 session.Scope,
-			SessionState:          session.SessionState,
-			MessageType:           constants.AuthMessageType,
-		}
-
-		rw.Header().Set("Content-Type", "text/html;")
-		jsonBuilder := new(strings.Builder)
-		err = json.NewEncoder(jsonBuilder).Encode(sessionInfo)
-
-		rw.Write([]byte(fmt.Sprintf("<script>window.opener.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
 	} else {
 		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: unauthorized")
 		p.ErrorPage(rw, req, http.StatusForbidden, "Invalid session: unauthorized")
@@ -1718,6 +1770,11 @@ func (p *OAuthProxy) redeemCode(req *http.Request) (*sessionsapi.SessionState, e
 	}
 
 	redirectURI := p.getOAuthRedirectURI(req)
+	// Case added to support library callback
+	if req.Header.Get(constants.RedirectLibHeader) != "" &&
+		req.Header.Get(constants.RedirectLibHeader) != redirectURI {
+		redirectURI = req.Header.Get(constants.RedirectLibHeader)
+	}
 	// Case added to support fallback to provider
 	if req.FormValue("redirect_uri") != "" &&
 		req.FormValue("redirect_uri") != redirectURI {
