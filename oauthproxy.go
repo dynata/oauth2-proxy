@@ -655,7 +655,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.UserInfo(rw, req)
 	case path == p.provider.Data().LoginURL.Path && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
 		p.MockLoginRequest(rw, req, false)
-	case path == p.provider.Data().LoginURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
+	case path == p.provider.Data().LoginURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint, Used in library
 		p.MockLoginRequest(rw, req, true)
 	case path == p.provider.Data().RedeemURL.Path && p.isOauth2ProxySupportedRequest(req): // Token Endpoint
 		p.MockTokenRequest(rw, req)
@@ -665,7 +665,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 			http.Redirect(rw, req, appRedirect, http.StatusFound)
 		}
 		p.MockLogoutRequest(rw, req, appRedirectHandler)
-	case path == p.provider.Data().LogoutURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint
+	case path == p.provider.Data().LogoutURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint, Used in library
 		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
 			var appRedirect string = params[0].(string)
 			appUrl, _ := url.Parse(appRedirect)
@@ -697,9 +697,9 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.MockChangePasswordUriRequest(rw, req)
 	case path == p.provider.Data().IssuerURL.Path+"/.well-known/openid-configuration" && p.isOauth2ProxySupportedRequest(req): // .well-known Endpoint
 		p.MockWellKnownUriRequest(rw, req)
-	case path == p.SilentAuthPath:
+	case path == p.SilentAuthPath: // Used in library
 		p.AuthenticateSilently(rw, req)
-	case path == p.CheckSessionPath:
+	case path == p.CheckSessionPath: // Used in library
 		p.CheckSession(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
@@ -1028,8 +1028,23 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 	}
 
 	session, err := p.getAuthenticatedSession(rw, req)
-	if err != nil {
-		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify({'unauthorized':'true'}),'%s');</script>", appOriginURL.String())
+	if err != nil || session == nil {
+		iframeMessage := struct {
+			Authorized  bool   `json:"authorized,omitempty"`
+			MessageType string `json:"message_type,omitempty"`
+		}{
+			Authorized:  false,
+			MessageType: constants.SilentAuthMessageType,
+		}
+
+		jsonBuilder := new(strings.Builder)
+		err = json.NewEncoder(jsonBuilder).Encode(iframeMessage)
+		if err != nil {
+			logger.Printf("Error encoding user info: %v", err)
+			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
 		// http.Error(rw, iframeUnauthorizedResponse, http.StatusUnauthorized)
 		rw.WriteHeader(http.StatusUnauthorized)
 		rw.Write([]byte(iframeUnauthorizedResponse))
@@ -1067,6 +1082,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		ExpiresIn             float64  `json:"expires_in,omitempty"`
 		Scope                 string   `json:"scope,omitempty"`
 		SessionState          string   `json:"session_state,omitempty"`
+		Authorized            bool     `json:"authorized,omitempty"`
 		MessageType           string   `json:"message_type,omitempty"`
 	}{
 		User:              session.User,
@@ -1081,6 +1097,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		ExpiresIn:    session.AccessExpiresIn,
 		Scope:        session.Scope,
 		SessionState: session.SessionState,
+		Authorized:   true,
 		MessageType:  constants.SilentAuthMessageType,
 	}
 
@@ -1120,7 +1137,23 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	session, err := p.getAuthenticatedSession(rw, req)
-	if err != nil {
+	if err != nil || session == nil {
+		iframeMessage := struct {
+			SessionActive bool   `json:"session_active,omitempty"`
+			MessageType   string `json:"message_type,omitempty"`
+		}{
+			SessionActive: false,
+			MessageType:   constants.CheckSessionMessageType,
+		}
+
+		jsonBuilder := new(strings.Builder)
+		err = json.NewEncoder(jsonBuilder).Encode(iframeMessage)
+		if err != nil {
+			logger.Printf("Error encoding user info: %v", err)
+			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		// iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
 		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify({'unauthorized':'true'}),'%s');</script>", appOriginURL.String())
 		// http.Error(rw, iframeUnauthorizedResponse, http.StatusUnauthorized)
 		rw.WriteHeader(http.StatusUnauthorized)
@@ -1141,6 +1174,7 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 		ExpiresIn             float64  `json:"expires_in,omitempty"`
 		Scope                 string   `json:"scope,omitempty"`
 		SessionState          string   `json:"session_state,omitempty"`
+		SessionActive         bool     `json:"session_active,omitempty"`
 		MessageType           string   `json:"message_type,omitempty"`
 	}{
 		User:              session.User,
@@ -1151,11 +1185,12 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 		IDToken:           session.IDToken,
 		// RefreshToken:          session.RefreshToken,
 		// RefreshTokenExpiresIn: session.RefreshExpiresIn,
-		AccessToken:  session.AccessToken,
-		ExpiresIn:    session.AccessExpiresIn,
-		Scope:        session.Scope,
-		SessionState: session.SessionState,
-		MessageType:  constants.CheckSessionMessageType,
+		AccessToken:   session.AccessToken,
+		ExpiresIn:     session.AccessExpiresIn,
+		Scope:         session.Scope,
+		SessionState:  session.SessionState,
+		SessionActive: true,
+		MessageType:   constants.CheckSessionMessageType,
 	}
 
 	jsonBuilder := new(strings.Builder)
