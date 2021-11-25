@@ -588,7 +588,39 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	case path == p.SignInPath:
 		p.SignIn(rw, req)
 	case path == p.SignOutPath:
-		p.SignOut(rw, req)
+		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+			var appRedirect string = params[0].(string)
+			http.Redirect(rw, req, appRedirect, http.StatusFound)
+		}
+		p.SignOut(rw, req, appRedirectHandler)
+	case path == p.SignOutPath+"/lib": // Used in library
+		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+			var appRedirect string = params[0].(string)
+			appUrl, _ := url.Parse(appRedirect)
+			appOriginURL := &url.URL{
+				Scheme: appUrl.Scheme,
+				Host:   appUrl.Host,
+			}
+
+			sessionInfo := struct {
+				MessageType string `json:"message_type,omitempty"`
+				LoggedOut   string `json:"logged_out,omitempty"`
+			}{
+				MessageType: constants.LogoutMessageType,
+				LoggedOut:   "true",
+			}
+
+			jsonBuilder := new(strings.Builder)
+			err := json.NewEncoder(jsonBuilder).Encode(sessionInfo)
+			if err != nil {
+				logger.Printf("Error encoding user info: %v", err)
+				http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+				return
+			}
+
+			rw.Write([]byte(fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
+		}
+		p.SignOut(rw, req, appRedirectHandler)
 	case path == p.OAuthStartPath:
 		p.OAuthStart(rw, req)
 	case path == p.OAuthCallbackPath:
@@ -660,37 +692,9 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 	case path == p.provider.Data().RedeemURL.Path && p.isOauth2ProxySupportedRequest(req): // Token Endpoint
 		p.MockTokenRequest(rw, req)
 	case path == p.provider.Data().LogoutURL.Path && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint
-		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
-			var appRedirect string = params[0].(string)
-			http.Redirect(rw, req, appRedirect, http.StatusFound)
-		}
-		p.MockLogoutRequest(rw, req, appRedirectHandler)
+		p.MockLogoutRequest(rw, req, false)
 	case path == p.provider.Data().LogoutURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Logout Endpoint, Used in library
-		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
-			var appRedirect string = params[0].(string)
-			appUrl, _ := url.Parse(appRedirect)
-			appOriginURL := &url.URL{
-				Scheme: appUrl.Scheme,
-				Host:   appUrl.Host,
-			}
-
-			sessionInfo := struct {
-				MessageType string `json:"message_type,omitempty"`
-			}{
-				MessageType: constants.LogoutMessageType,
-			}
-
-			jsonBuilder := new(strings.Builder)
-			err := json.NewEncoder(jsonBuilder).Encode(sessionInfo)
-			if err != nil {
-				logger.Printf("Error encoding user info: %v", err)
-				http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-				return
-			}
-
-			rw.Write([]byte(fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())))
-		}
-		p.MockLogoutRequest(rw, req, appRedirectHandler)
+		p.MockLogoutRequest(rw, req, true)
 	case path == p.provider.Data().JwksURL.Path && p.isOauth2ProxySupportedRequest(req): // JwksUri Endpoint
 		p.MockJwksUriRequest(rw, req)
 	case path == p.provider.Data().ChangePasswordURL.Path: // Change password Endpoint
@@ -1030,10 +1034,10 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 	session, err := p.getAuthenticatedSession(rw, req)
 	if err != nil || session == nil {
 		iframeMessage := struct {
-			Authorized  bool   `json:"authorized,omitempty"`
+			Authorized  string `json:"authorized,omitempty"`
 			MessageType string `json:"message_type,omitempty"`
 		}{
-			Authorized:  false,
+			Authorized:  "false",
 			MessageType: constants.SilentAuthMessageType,
 		}
 
@@ -1082,7 +1086,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		ExpiresIn             float64  `json:"expires_in,omitempty"`
 		Scope                 string   `json:"scope,omitempty"`
 		SessionState          string   `json:"session_state,omitempty"`
-		Authorized            bool     `json:"authorized,omitempty"`
+		Authorized            string   `json:"authorized,omitempty"`
 		MessageType           string   `json:"message_type,omitempty"`
 	}{
 		User:              session.User,
@@ -1097,7 +1101,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		ExpiresIn:    session.AccessExpiresIn,
 		Scope:        session.Scope,
 		SessionState: session.SessionState,
-		Authorized:   true,
+		Authorized:   "true",
 		MessageType:  constants.SilentAuthMessageType,
 	}
 
@@ -1139,10 +1143,10 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 	session, err := p.getAuthenticatedSession(rw, req)
 	if err != nil || session == nil {
 		iframeMessage := struct {
-			SessionActive bool   `json:"session_active,omitempty"`
+			SessionActive string `json:"session_active,omitempty"`
 			MessageType   string `json:"message_type,omitempty"`
 		}{
-			SessionActive: false,
+			SessionActive: "false",
 			MessageType:   constants.CheckSessionMessageType,
 		}
 
@@ -1174,7 +1178,7 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 		ExpiresIn             float64  `json:"expires_in,omitempty"`
 		Scope                 string   `json:"scope,omitempty"`
 		SessionState          string   `json:"session_state,omitempty"`
-		SessionActive         bool     `json:"session_active,omitempty"`
+		SessionActive         string   `json:"session_active,omitempty"`
 		MessageType           string   `json:"message_type,omitempty"`
 	}{
 		User:              session.User,
@@ -1189,7 +1193,7 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 		ExpiresIn:     session.AccessExpiresIn,
 		Scope:         session.Scope,
 		SessionState:  session.SessionState,
-		SessionActive: true,
+		SessionActive: "true",
 		MessageType:   constants.CheckSessionMessageType,
 	}
 
@@ -1321,7 +1325,7 @@ func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request, appRedirectHandler appRedirectHandlerFunc) {
+func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request, isLibCall bool) {
 	var redirectURI string
 
 	if req.FormValue("redirect_uri") != "" {
@@ -1360,6 +1364,10 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 			return
 		}
 	} else {
+		var rdUrl string
+		var rd string
+		var signoutPath string = p.SignOutPath
+
 		logoutUrl := p.provider.Data().LogoutURL
 		scheme := requestutil.GetRequestProto(req)
 		host := requestutil.GetRequestHost(req)
@@ -1368,12 +1376,46 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		}
 		urlHost := fmt.Sprintf("%s://%s", scheme, host)
 
-		var rdUrl string
 		if redirectURI != "" {
-			rdUrl = urlHost + p.SignOutPath + "?rd=" + redirectURI
+			rd = redirectURI
 		} else {
-			rdUrl = urlHost + p.SignOutPath + "?rd=" + urlHost + p.SignInPath
+			rd = urlHost + p.SignInPath
 		}
+
+		if isLibCall {
+			signoutPath = signoutPath + "/lib"
+			session, err := p.getAuthenticatedSession(rw, req)
+			if err != nil || session == nil {
+				iframeMessage := struct {
+					MessageType string `json:"message_type,omitempty"`
+					LoggedOut   string `json:"logged_out,omitempty"`
+				}{
+					MessageType: constants.LogoutMessageType,
+					LoggedOut:   "false",
+				}
+
+				jsonBuilder := new(strings.Builder)
+				err = json.NewEncoder(jsonBuilder).Encode(iframeMessage)
+				if err != nil {
+					logger.Printf("Error encoding user info: %v", err)
+					http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+					return
+				}
+
+				appUrl, _ := url.Parse(rd)
+				appOriginURL := &url.URL{
+					Scheme: appUrl.Scheme,
+					Host:   appUrl.Host,
+				}
+
+				iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
+				rw.WriteHeader(http.StatusUnauthorized)
+				rw.Write([]byte(iframeUnauthorizedResponse))
+				return
+			}
+		}
+
+		rdUrl = urlHost + signoutPath + "?rd=" + rd
 
 		clientId := req.FormValue("client_id")
 		if clientId != "" {
@@ -1384,11 +1426,9 @@ func (p *OAuthProxy) MockLogoutRequest(rw http.ResponseWriter, req *http.Request
 		queries.Set("redirect_uri", rdUrl)
 		logoutUrl.RawQuery = queries.Encode()
 
-		// logger.Printf("Redirect URL: %v", logoutUrl)
+		logger.Printf("Redirect URL: %v", logoutUrl)
 
-		// http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
-
-		appRedirectHandler(rw, req, logoutUrl.String())
+		http.Redirect(rw, req, logoutUrl.String(), http.StatusFound)
 	}
 }
 
@@ -1543,7 +1583,7 @@ func (p *OAuthProxy) MockChangePasswordUriRequest(rw http.ResponseWriter, req *h
 type appRedirectHandlerFunc func(rw http.ResponseWriter, req *http.Request, params ...interface{})
 
 // SignOut sends a response to clear the authentication cookie
-func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
+func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request, appRedirectHandler appRedirectHandlerFunc) {
 	appRedirect, err := p.getAppRedirect(req)
 	if err != nil {
 		logger.Errorf("Error obtaining redirect: %v", err)
@@ -1556,7 +1596,11 @@ func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
 		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
 		return
 	}
-	http.Redirect(rw, req, appRedirect, http.StatusFound)
+	if appRedirectHandler != nil {
+		appRedirectHandler(rw, req, appRedirect)
+	} else {
+		http.Redirect(rw, req, appRedirect, http.StatusFound)
+	}
 }
 
 // OAuthStart starts the OAuth2 authentication flow
