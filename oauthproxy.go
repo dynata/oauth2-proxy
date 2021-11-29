@@ -1157,8 +1157,8 @@ func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		// iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
-		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify({'unauthorized':'true'}),'%s');</script>", appOriginURL.String())
+		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
+		// iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify({'unauthorized':'true'}),'%s');</script>", appOriginURL.String())
 		// http.Error(rw, iframeUnauthorizedResponse, http.StatusUnauthorized)
 		rw.WriteHeader(http.StatusUnauthorized)
 		rw.Write([]byte(iframeUnauthorizedResponse))
