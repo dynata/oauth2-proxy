@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
-	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests"
@@ -127,16 +126,7 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 
 	clientId := p.ClientID
 
-	requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
-	if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
-		clientId = v
-	}
-	if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
-		clientSecret = v
-	}
-	/* if v, ok := requestedClientConfig["redirect_uri"]; ok && v != redirectURL {
-		redirectURL = v
-	} */
+	clientId, clientSecret = getClientIdAndSecret(ctx, clientId, clientSecret)
 
 	c := oauth2.Config{
 		ClientID:     clientId,
@@ -224,10 +214,7 @@ func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.Sess
 
 	verifier := p.Verifier
 
-	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
-	if requestedClientVerifier != nil {
-		verifier = requestedClientVerifier
-	}
+	verifier = getClientVerifier(ctx, verifier)
 
 	idToken, err := verifier.Verify(ctx, s.IDToken)
 	if err != nil {
@@ -289,13 +276,7 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 			}
 		}
 	} else if ctx != nil {
-		requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
-		if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
-			clientId = v
-		}
-		if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
-			clientSecret = v
-		}
+		clientId, clientSecret = getClientIdAndSecret(ctx, clientId, clientSecret)
 	}
 
 	c := oauth2.Config{
@@ -350,10 +331,7 @@ func (p *KeycloakProvider) redeemRefreshToken(ctx context.Context, s *sessions.S
 func (p *KeycloakProvider) CreateSessionFromToken(ctx context.Context, token string) (*sessions.SessionState, error) {
 	verifier := p.Verifier
 
-	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
-	if requestedClientVerifier != nil {
-		verifier = requestedClientVerifier
-	}
+	verifier = getClientVerifier(ctx, verifier)
 
 	idToken, err := verifier.Verify(ctx, token)
 	if err != nil {
@@ -486,13 +464,7 @@ func (p *KeycloakProvider) PerformPasswordGrant(ctx context.Context, username, p
 
 	clientId := p.ClientID
 
-	requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
-	if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
-		clientId = v
-	}
-	if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
-		clientSecret = v
-	}
+	clientId, clientSecret = getClientIdAndSecret(ctx, clientId, clientSecret)
 
 	c := oauth2.Config{
 		ClientID:     clientId,
@@ -542,13 +514,7 @@ func validateKeycloakToken(ctx context.Context, p Provider, s *sessions.SessionS
 			}
 		}
 	} else if ctx != nil {
-		requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
-		if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
-			clientId = v
-		}
-		if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
-			clientSecret = v
-		}
+		clientId, clientSecret = getClientIdAndSecret(ctx, clientId, clientSecret)
 	}
 	auth := clientId + ":" + clientSecret
 

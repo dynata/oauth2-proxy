@@ -8,6 +8,8 @@ import (
 	"net/url"
 
 	"github.com/bitly/go-simplejson"
+	"github.com/coreos/go-oidc"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"golang.org/x/oauth2"
 )
@@ -37,6 +39,31 @@ func makeOIDCHeader(accessToken string) http.Header {
 	return makeAuthorizationHeader(tokenTypeBearer, accessToken, extraHeaders)
 }
 
+func getClientIdAndSecret(ctx context.Context, clientIdOriginal, clientSecretOriginal string) (clientId, clientSecret string) {
+	requestedClientConfig := middleware.GetRequestScopeFromContext(ctx).RequestedClientConfig
+	if v, ok := requestedClientConfig["client_id"]; ok && v != clientId {
+		clientId = v
+	} else {
+		clientId = clientIdOriginal
+	}
+	if v, ok := requestedClientConfig["client_secret"]; ok && v != clientSecret {
+		clientSecret = v
+	} else {
+		clientSecret = clientSecretOriginal
+	}
+	return
+}
+
+func getClientVerifier(ctx context.Context, verifierOriginal *oidc.IDTokenVerifier) (verifier *oidc.IDTokenVerifier) {
+	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
+	if requestedClientVerifier != nil {
+		verifier = requestedClientVerifier
+	} else {
+		verifier = verifierOriginal
+	}
+	return
+}
+
 func makeLoginURL(ctx context.Context, p *ProviderData, redirectURI, state string, extraParams url.Values) url.URL {
 	a := *p.LoginURL
 
@@ -58,16 +85,26 @@ func makeLoginURL(ctx context.Context, p *ProviderData, redirectURI, state strin
 				clientId = v
 			case "redirect_uri":
 				redirectURI = v
-			case "acr_values":
-				acrValues = v
-			case "prompt":
-				prompt = v
-			case "approval_prompt":
-				approvalPrompt = v
-			case "scope":
-				scope = v
-			case "kc_idp_hint":
-				extraParams.Add(k, v)
+			}
+		}
+
+		queryParams := ctx.Value(constants.ContextOidcLoginRequestParams{}).(url.Values)
+
+		if queryParams != nil {
+			if queryParams.Get("acr_values") != "" {
+				acrValues = queryParams.Get("acr_values")
+			}
+			if queryParams.Get("prompt") != "" {
+				prompt = queryParams.Get("prompt")
+			}
+			if queryParams.Get("approval_prompt") != "" {
+				approvalPrompt = queryParams.Get("approval_prompt")
+			}
+			if queryParams.Get("scope") != "" {
+				scope = queryParams.Get("scope")
+			}
+			if queryParams.Get("kc_idp_hint") != "" {
+				extraParams.Set("kc_idp_hint", queryParams.Get("kc_idp_hint"))
 			}
 		}
 	}
@@ -75,17 +112,17 @@ func makeLoginURL(ctx context.Context, p *ProviderData, redirectURI, state strin
 	params, _ := url.ParseQuery(a.RawQuery)
 	params.Set("redirect_uri", redirectURI)
 	if acrValues != "" {
-		params.Add("acr_values", acrValues)
+		params.Set("acr_values", acrValues)
 	}
 	if prompt != "" {
 		params.Set("prompt", prompt)
 	} else { // Legacy variant of the prompt param:
 		params.Set("approval_prompt", approvalPrompt)
 	}
-	params.Add("scope", scope)
+	params.Set("scope", scope)
 	params.Set("client_id", clientId)
 	params.Set("response_type", "code")
-	params.Add("state", state)
+	params.Set("state", state)
 	for n, p := range extraParams {
 		for _, v := range p {
 			params.Add(n, v)
