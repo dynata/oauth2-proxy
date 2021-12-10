@@ -87,7 +87,7 @@ func (m *Manager) Clear(rw http.ResponseWriter, req *http.Request) error {
 	scope := middleware.GetRequestScope(req)
 	clientId := req.FormValue("client_id")
 	if clientId == "" {
-		// clientId = req.Context().Value("applied_client_id").(string)
+		// clientId = req.Context().Value(constants.ContextAppliedClientId{}).(string)
 		for _, clientId := range scope.AllClientIDs {
 			err := m.clearCookieAndSession(rw, req, clientId)
 			if err != nil {

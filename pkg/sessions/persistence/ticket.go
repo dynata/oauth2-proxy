@@ -124,7 +124,7 @@ func decodeUUIDTicket(decodedTicket string, loadUUIDTicket loadFunc, clearUUIDTi
 func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
 	clientId := req.FormValue("client_id")
 	if clientId == "" {
-		clientId = req.Context().Value("applied_client_id").(string)
+		clientId = req.Context().Value(constants.ContextAppliedClientId{}).(string)
 	}
 
 	requestCookie, err := req.Cookie(cookieOpts.Name + "|" + clientId)
@@ -256,7 +256,7 @@ func (t *ticket) clearCookie(rw http.ResponseWriter, req *http.Request, clientId
 func (t *ticket) makeCookie(req *http.Request, value string, expires time.Duration, now time.Time) (*http.Cookie, error) {
 	clientId := req.FormValue("client_id")
 	if clientId == "" {
-		clientId = req.Context().Value("applied_client_id").(string)
+		clientId = req.Context().Value(constants.ContextAppliedClientId{}).(string)
 	}
 
 	if value != "" {

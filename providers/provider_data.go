@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc"
-	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"golang.org/x/oauth2"
@@ -164,10 +163,8 @@ func (p *ProviderData) verifyIDToken(ctx context.Context, token *oauth2.Token) (
 		return nil, ErrMissingOIDCVerifier
 	}
 
-	requestedClientVerifier := middleware.GetRequestScopeFromContext(ctx).RequestedClientVerifier
-	if requestedClientVerifier != nil {
-		verifier = requestedClientVerifier
-	}
+	verifier = getClientVerifier(ctx, verifier)
+
 	return verifier.Verify(ctx, rawIDToken)
 }
 
