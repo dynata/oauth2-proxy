@@ -122,9 +122,7 @@ func decodeUUIDTicket(decodedTicket string, loadUUIDTicket loadFunc, clearUUIDTi
 // decodeTicketFromRequest retrieves a potential ticket cookie from a request
 // and decodes it to a ticket.
 func decodeTicketFromRequest(req *http.Request, cookieOpts *options.Cookie) (*ticket, error) {
-
 	requestCookie, err := req.Cookie(cookieOpts.Name)
-
 	if err != nil {
 		// Don't wrap this error to allow `err == http.ErrNoCookie` checks
 		return nil, err
@@ -251,7 +249,6 @@ func (t *ticket) clearCookie(rw http.ResponseWriter, req *http.Request) {
 
 // makeCookie makes a cookie, signing the value if present
 func (t *ticket) makeCookie(req *http.Request, value string, expires time.Duration, now time.Time) (*http.Cookie, error) {
-	
 	if value != "" {
 		var err error
 		value, err = encryption.SignedValue(t.options.Secret, t.options.Name, []byte(value), now)

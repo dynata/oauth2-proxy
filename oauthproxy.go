@@ -557,7 +557,6 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	ctx := context.WithValue(req.Context(), constants.ContextTokenAuthPath{},
 		p.provider.Data().RedeemURL.Path)
-
 	req = req.Clone(ctx)
 
 	reverseProxyResponseModifierFunctions := []responseModifiers{} //Append modifier functions if needed
@@ -691,6 +690,24 @@ func (p *OAuthProxy) updateConfigToRequestScope(providerData *providers.Provider
 		if clientIdOk && redirectUriOk && (clientSecretOk || clientSecretFileOk) &&
 			configClientId != "" && configClientId == req.FormValue("client_id") &&
 			req.FormValue("response_type") == "code" && configRedirectUri != "" {
+
+			if req.FormValue("scope") != "" {
+				config["scope"] = req.FormValue("scope")
+			}
+			if req.FormValue("acr_values") != "" {
+				config["acr_values"] = req.FormValue("acr_values")
+			}
+			if req.FormValue("prompt") != "" {
+				config["prompt"] = req.FormValue("prompt")
+			}
+			if req.FormValue("approval_prompt") != "" {
+				config["approval_prompt"] = req.FormValue("approval_prompt")
+			}
+
+			if req.FormValue("kc_idp_hint") != "" {
+				config["kc_idp_hint"] = req.FormValue("kc_idp_hint")
+			}
+
 			middlewareapi.GetRequestScope(req).RequestedClientConfig = config
 			middlewareapi.GetRequestScope(req).RequestedClientVerifier = providerData.ClientsVerifiers[configClientId]
 		}
@@ -1264,13 +1281,8 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	callbackRedirect := p.getOAuthRedirectURI(req)
-
-	query := req.URL.Query()
-	ctx := req.Context()
-	newCtx := context.WithValue(ctx, constants.ContextOidcLoginRequestParams{}, query)
-
 	loginURL := p.provider.GetLoginURL(
-		newCtx,
+		req.Context(),
 		callbackRedirect,
 		encodeState(csrf.HashOAuthState(), appRedirect, string(hashedClientIdBytes)),
 		csrf.HashOIDCNonce(),
@@ -1361,7 +1373,6 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		logger.Errorf("Error with authorization: %v", err)
 	}
-
 	if p.Validator(session.Email) && authorized {
 		logger.PrintAuthf(session.Email, req, logger.AuthSuccess, "Authenticated via OAuth2: %s", session)
 		ticketID, err := p.SaveSession(rw, req, session)
