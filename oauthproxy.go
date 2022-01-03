@@ -1026,7 +1026,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		jsonBuilder := new(strings.Builder)
 		err = json.NewEncoder(jsonBuilder).Encode(iframeMessage)
 		if err != nil {
-			logger.Printf("Error encoding user info: %v", err)
+			logger.Printf("Error authenticating user silently: %v", err)
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
@@ -1050,8 +1050,35 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 
 	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 	if err != nil {
-		logger.Printf("Error refreshing session: %v", err)
+		logger.Printf("Error refreshing user session silently: %v", err)
+
+		iframeMessage := struct {
+			Authorized  string `json:"authorized,omitempty"`
+			MessageType string `json:"message_type,omitempty"`
+		}{
+			Authorized:  "false",
+			MessageType: constants.SilentAuthMessageType,
+		}
+
+		jsonBuilder := new(strings.Builder)
+		err = json.NewEncoder(jsonBuilder).Encode(iframeMessage)
+		if err != nil {
+			logger.Printf("Error refreshing user session silently: %v", err)
+			http.Error(rw, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		err = p.ClearSessionCookie(rw, req)
+		if err != nil {
+			logger.Errorf("Error clearing user session cookie: %v", err)
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		iframeUnauthorizedResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
+		// http.Error(rw, iframeUnauthorizedResponse, http.StatusUnauthorized)
 		rw.WriteHeader(http.StatusUnauthorized)
+		rw.Write([]byte(iframeUnauthorizedResponse))
 		return
 	}
 
