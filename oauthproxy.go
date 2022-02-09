@@ -1869,7 +1869,7 @@ func (p *OAuthProxy) redeemCode(req *http.Request) (*sessionsapi.SessionState, e
 		req.Header.Get(constants.RedirectLibHeader) != redirectURI {
 		redirectURI = req.Header.Get(constants.RedirectLibHeader)
 	}
-	// Case added to support fallback to provider
+	// Case added to support fallback to provider, this case will be executed by barbican
 	if req.FormValue("redirect_uri") != "" &&
 		req.FormValue("redirect_uri") != redirectURI {
 		redirectURI = req.FormValue("redirect_uri")
