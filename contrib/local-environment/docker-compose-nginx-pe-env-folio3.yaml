@@ -24,10 +24,10 @@ services:
     container_name: nginx
     image: nginx:1.18
     ports:
-      - 80:80/tcp
+      - 7999:80/tcp
     hostname: nginx
     volumes:
-      - "./nginx-keycloak.conf:/etc/nginx/conf.d/default.conf"
+      - "./nginx-keycloak-folio3.conf:/etc/nginx/conf.d/default.conf"
     networks:
       oauth2-proxy: {}
     depends_on:
@@ -49,10 +49,16 @@ services:
   oauth2-proxy:
     container_name: oauth2-proxy
     image: quay.io/oauth2-proxy/oauth2-proxy:debug
+    security_opt:
+      - seccomp:unconfined
+      - apparmor=unconfined
+    cap_add:
+      - SYS_PTRACE
+    entrypoint: ['/bin/dlv', '--listen=:41800', '--headless=true', '--accept-multiclient', '--api-version=2', 'exec', '/bin/oauth2-proxy', '--continue', '--']
     command: --config /oauth2-proxy.cfg
     hostname: oauth2-proxy
     volumes:
-      - "./oauth2-proxy-pe-env-nginx-keycloak.cfg:/oauth2-proxy.cfg"
+      - "./docker-compose-nginx-pe-env-folio3.cfg:/oauth2-proxy.cfg"
     restart: unless-stopped
     networks:
       oauth2-proxy:
@@ -60,6 +66,7 @@ services:
           - oauth2-proxy.localhost
     ports:
       - 4180:4180/tcp
+      - 41800:41800/tcp
 
 networks:
   oauth2-proxy:

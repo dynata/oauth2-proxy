@@ -120,10 +120,10 @@ validate-go-version:
 #    make local-env-nginx-down 							# Tear down the nginx based test environment
 #    make local-env-keycloak-nginx-up 					# Bring up an nginx and keycloak based test environment
 #    make local-env-keycloak-nginx-down 				# Tear down the nginx and keycloak based test environment
-#	 make local-env-keycloak-pe-dev-nginx-up			# Bring up an nginx and pe env keycloak based test environment
-#	 make local-env-keycloak-pe-dev-nginx-down			# Tear down the nginx and pe env keycloak based test environment
-#	 make local-env-keycloak-pe-dev-nginx-folio3-up		# Bring up an nginx and pe env keycloak based test environment
-#	 make local-env-keycloak-pe-dev-nginx-folio3-down	# Tear down the nginx and pe env keycloak based test environment
+#	 make local-env-pe-dev-nginx-up						# Bring up an nginx and pe env (assuming keycloak already setup) based test environment
+#	 make local-env-pe-dev-nginx-down					# Tear down the nginx and pe env (assuming keycloak already setup) based test environment
+#	 make local-env-pe-dev-nginx-folio3-up				# Bring up an nginx and pe env (assuming keycloak already setup) based test environment
+#	 make local-env-pe-dev-nginx-folio3-down			# Tear down the nginx and pe env (assuming keycloak already setup) based test environment
 .PHONY: local-env-%
 local-env-%:
 	make -C contrib/local-environment $*

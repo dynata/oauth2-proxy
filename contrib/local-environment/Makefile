@@ -38,21 +38,21 @@ keycloak-nginx-up:
 keycloak-nginx-%:
 	docker-compose -f docker-compose-nginx-keycloak.yaml $*
 
-.PHONY: keycloak-pe-dev-nginx-up
-keycloak-pe-dev-nginx-up:
-	docker-compose -f docker-compose-nginx-pe-env-keycloak.yaml up -d
+.PHONY: pe-dev-nginx-up
+pe-dev-nginx-up:
+	docker-compose -f docker-compose-nginx-pe-env.yaml up -d
 
-.PHONY: keycloak-pe-dev-nginx-%
-keycloak-pe-dev-nginx-%:
-	docker-compose -f docker-compose-nginx-pe-env-keycloak.yaml $*
+.PHONY: pe-dev-nginx-%
+pe-dev-nginx-%:
+	docker-compose -f docker-compose-nginx-pe-env.yaml $*
 
-.PHONY: keycloak-pe-dev-nginx-folio3-up
-keycloak-pe-dev-nginx-folio3-up:
-	docker-compose -f docker-compose-nginx-pe-env-keycloak-folio3.yaml up -d
+.PHONY: pe-dev-nginx-folio3-up
+pe-dev-nginx-folio3-up:
+	docker-compose -f docker-compose-nginx-pe-env-folio3.yaml up -d
 
-.PHONY: keycloak-pe-dev-nginx-folio3-%
-keycloak-pe-dev-nginx-folio3-%:
-	docker-compose -f docker-compose-nginx-pe-env-keycloak-folio3.yaml $*
+.PHONY: pe-dev-nginx-folio3-%
+pe-dev-nginx-folio3-%:
+	docker-compose -f docker-compose-nginx-pe-env-folio3.yaml $*
 
 .PHONY: kubernetes-up
 kubernetes-up:
