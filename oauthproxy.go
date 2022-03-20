@@ -15,12 +15,16 @@ import (
 	"os/signal"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	jwt_go "github.com/dgrijalva/jwt-go"
+	token "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"golang.org/x/crypto/bcrypt"
 
+	corpus "github.com/dynata/proto-api/go/iam/corpus/v1"
 	"github.com/justinas/alice"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	ipapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/ip"
@@ -31,7 +35,6 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication/basic"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/cookies"
 	proxyhttp "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/http"
-
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/ip"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/middleware"
@@ -39,6 +42,8 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/upstream"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/providers"
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -58,6 +63,46 @@ var (
 	// Matches //, /\ and both of these with whitespace in between (eg / / or / \).
 	invalidRedirectRegex = regexp.MustCompile(`[/\\](?:[\s\v]*|\.{1,2})[/\\]`)
 )
+
+// KCTokenResponse ...
+type KCTokenResponse struct {
+	TokenType        string `json:"token_type"`
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int    `json:"expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
+	SessionState     string `json:"session_state"`
+}
+
+// KCErrorResponse ...
+type KCErrorResponse struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+}
+
+// SwitchCompanyAuthContext provides the auth switchCompany action context.
+type SwitchCompanyAuthContext struct {
+	context.Context
+	Payload *SwitchCompanyPayload
+}
+
+// SwitchCompanyPayload user type.
+type SwitchCompanyPayload struct {
+	// Client Secret
+	ClientSecret *string
+	// Company ID
+	CompanyID float64
+}
+type TokenMedia struct {
+	// Access token
+	AccessToken string `form:"accessToken" json:"accessToken" yaml:"accessToken" xml:"accessToken"`
+	// Access token expires in seconds
+	ExpiresIn int `form:"expiresIn" json:"expiresIn" yaml:"expiresIn" xml:"expiresIn"`
+	// Refresh token expires in seconds
+	RefreshExpiresIn int `form:"refreshExpiresIn" json:"refreshExpiresIn" yaml:"refreshExpiresIn" xml:"refreshExpiresIn"`
+	// Refresh token
+	RefreshToken string `form:"refreshToken" json:"refreshToken" yaml:"refreshToken" xml:"refreshToken"`
+}
 
 // allowedRoute manages method + path based allowlists
 type allowedRoute struct {
@@ -80,6 +125,7 @@ type OAuthProxy struct {
 	UserInfoPath         string
 	CheckSessionPath     string
 	SilentAuthPath       string
+	SwitchCompanyPath    string
 
 	allowedRoutes         []allowedRoute
 	redirectURL           *url.URL // the url to receive requests at
@@ -103,6 +149,9 @@ type OAuthProxy struct {
 	pageWriter         pagewriter.Writer
 	server             proxyhttp.Server
 	reverseProxyServer *httputil.ReverseProxy
+	corpusClient       corpus.CorpusClient
+	KCURL              string
+	tokenBuilder       *token.TokenBuilder
 }
 
 type authServerTokenResponse struct {
@@ -205,6 +254,11 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	reverseProxyServerURLString := reverseProxyServerURL.String()
 	reverseProxyServer := NewReverseProxy(reverseProxyServerURLString)
 
+	corpusconn, err := grpc.Dial(":9022", grpc.WithInsecure())
+	if err != nil {
+		log.Fatal("could not connect to corpus client %s", err)
+	}
+
 	p := &OAuthProxy{
 		CookieOptions: &opts.Cookie,
 		Validator:     validator,
@@ -219,6 +273,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		UserInfoPath:         fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
 		CheckSessionPath:     fmt.Sprintf("%s/lib/check_session", opts.ProxyPrefix),
 		SilentAuthPath:       fmt.Sprintf("%s/lib/silent", opts.ProxyPrefix),
+		SwitchCompanyPath:    fmt.Sprintf("%s/switchcompany", opts.ProxyPrefix),
 
 		ProxyPrefix:           opts.ProxyPrefix,
 		provider:              provider,
@@ -241,6 +296,8 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		preAuthChain:       preAuthChain,
 		pageWriter:         pageWriter,
 		reverseProxyServer: reverseProxyServer,
+		corpusClient:       corpus.NewCorpusClient(corpusconn),
+		KCURL:              `http://localhost:8080/auth/realms/pe/protocol/openid-connect`,
 	}
 
 	if err := p.setupServer(opts); err != nil {
@@ -707,6 +764,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.CheckSession(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
+	case path == p.SwitchCompanyPath: // Switch Company Endpoint
+		p.SwitchCompany(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -1471,6 +1530,7 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 	prepareNoCache(rw)
 
 	c := http.Client{}
+
 	resp, err := c.Get(p.provider.Data().IssuerURL.String() + "/.well-known/openid-configuration")
 
 	if err != nil {
@@ -2188,6 +2248,299 @@ func (p *OAuthProxy) getClientIdFromSecureHashedClient(hashedClientId string, re
 		}
 	}
 	return "", errors.New("provided client ID did not match with any configured client IDs")
+
+}
+
+func (p *OAuthProxy) authToken(data url.Values) (*TokenMedia, error) {
+	l := log.WithField("function", "authToken")
+
+	r, err := http.NewRequest("POST", p.KCURL+"/token", strings.NewReader(data.Encode()))
+	if err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("http.NewRequest()")
+		//return nil, "" //ctx.InternalServerError(authInternalServerError())
+	}
+	r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+	c := http.Client{}
+
+	resp, err := c.Do(r)
+	if err != nil {
+		l.WithFields(log.Fields{"err": err, "req": r}).Error("client.do()")
+		//return nil, ctx.InternalServerError(authInternalServerError())
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("ioutil.ReadAll()")
+		//	return nil, ctx.InternalServerError(authInternalServerError())
+	}
+
+	l = l.WithField("body", string(body))
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		tr := KCTokenResponse{}
+		if err := json.Unmarshal(body, &tr); err != nil {
+			//return nil, ctx.InternalServerError(authInternalServerError())
+		}
+		res := &TokenMedia{
+			AccessToken:      tr.AccessToken,
+			ExpiresIn:        tr.ExpiresIn,
+			RefreshExpiresIn: tr.RefreshExpiresIn,
+			RefreshToken:     tr.RefreshToken,
+		}
+		return res, nil
+
+	case http.StatusBadRequest:
+		l.Warn("StatusBadRequest from keycloak")
+		tr := KCErrorResponse{}
+		if err := json.Unmarshal(body, &tr); err != nil {
+			//	return nil, ctx.InternalServerError(authInternalServerError())
+		}
+	//	return nil, ctx.BadRequest(authError(tr))
+
+	case http.StatusUnauthorized:
+		l.Warn("StatusUnauthorized from keycloak")
+		tr := KCErrorResponse{}
+		if err := json.Unmarshal(body, &tr); err != nil {
+			//	return nil, ctx.InternalServerError(authInternalServerError())
+		}
+		//return nil, ctx.Unauthorized(authError(tr))
+
+	default:
+		l.WithFields(log.Fields{"req": r, "statuscode": resp.StatusCode}).Error("Unsupported status code")
+		//return nil, ctx.InternalServerError(authInternalServerError())
+	}
+	return nil, nil
+}
+
+// createClaimsTransformer creates a new ClaimsTransformer for the passed company id. Claims will be filtered
+// based on data from corpus.
+func (p *OAuthProxy) createClaimsTransformer(
+	ctx context.Context,
+	//authCtx generalAuthContext,
+	compID int64,
+) (token.ClaimsTransformer, error) {
+	l := log.WithField("function", "createClaimsTransformer")
+	clientRolesResp, err := p.corpusClient.ListProductLineClientRolesByCompanyID(
+		ctx,
+		&corpus.RequestID{Id: compID},
+	)
+	if err != nil {
+		l.WithField("err", err).Error()
+		//return nil, authCtx.InternalServerError(authInternalServerError())
+	}
+
+	transformer, err := claimsTransformer(compID, clientRolesResp.Clients)
+	if err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("claimsTransformer()")
+		//return nil, authCtx.InternalServerError(authInternalServerError())
+	}
+	return transformer, nil
+}
+
+func claimsTransformer(effCompID int64, corpusClientRoles map[string]*corpus.ClientRoles) (token.ClaimsTransformer, error) {
+
+	const (
+		rolesStr          = "roles"
+		resourceAccessStr = "resource_access"
+		effCompanyIdStr   = "effective_company_id"
+	)
+	return func(parsedClaims map[string]interface{}) (map[string]interface{}, error) {
+		// start with new claims which override/set effective company id
+		newClaims := map[string]interface{}{effCompanyIdStr: effCompID}
+		if len(parsedClaims) == 0 {
+			return newClaims, nil
+		}
+		raInterface, foundRA := parsedClaims[resourceAccessStr]
+		if !foundRA {
+			return newClaims, nil
+		}
+		raMap, ok := raInterface.(map[string]interface{})
+		if !ok {
+			// not sure what type of structure is at "resource_access" and we can't go through it so just
+			// copy it over without modification.
+			newClaims[resourceAccessStr] = raInterface
+			return newClaims, nil
+		}
+		newRA := map[string]interface{}{}
+		newClaims[resourceAccessStr] = newRA
+		for raKey, raVal := range raMap {
+			ccrs, foundInCCRs := corpusClientRoles[raKey]
+			if !foundInCCRs {
+				// we don't know about value. just copy it over.
+				newRA[raKey] = raVal
+				continue
+			}
+			raValMap, raValIsMap := raVal.(map[string]interface{})
+			if !raValIsMap {
+				// structure is not a map so we can't inspect it. just copy it over.
+				newRA[raKey] = raVal
+				continue
+			}
+			newRAValMap := map[string]interface{}{}
+			newRA[raKey] = newRAValMap
+			for raValKey, raValVal := range raValMap {
+				if raValKey != rolesStr {
+					newRAValMap[raValKey] = raValVal
+					continue
+				}
+				raValRoles, raValRolesIsSlice := raValVal.([]interface{})
+				if !raValRolesIsSlice {
+					// roles is not a slice so we can't inspect it. just copy over.
+					newRAValMap[raValKey] = raValVal
+					continue
+				}
+				newRAValRoles := make([]interface{}, 0, len(raValRoles))
+				for _, raValRoleInterface := range raValRoles {
+					raValRole, raValRoleIsString := raValRoleInterface.(string)
+					if !raValRoleIsString {
+						// not a string so we can't inspect it. just copy over.
+						newRAValRoles = append(newRAValRoles, raValRoleInterface)
+						continue
+					}
+					var matchingCCR *corpus.ClientRole
+					for _, ccr := range ccrs.ClientRoles {
+						if ccr.Name == raValRole {
+							matchingCCR = ccr
+							break
+						}
+					}
+					if matchingCCR == nil {
+						// no match from corpus. just copy over.
+						newRAValRoles = append(newRAValRoles, raValRoleInterface)
+						continue
+					}
+					// if we are here then corpus client role matches and we need to check to
+					// see if role should be included.
+					if matchingCCR.AssignedForCompany {
+						newRAValRoles = append(newRAValRoles, raValRoleInterface)
+					}
+				}
+				if len(newRAValRoles) > 0 {
+					// only add roles if there are some
+					newRAValMap[rolesStr] = newRAValRoles
+				}
+			}
+
+			if len(newRAValMap) == 0 {
+				// remove entry if it's completely empty
+				delete(newRA, raKey)
+			}
+		}
+
+		return newClaims, nil
+	}, nil
+}
+
+func (p *OAuthProxy) reSignTokensWithClaims(tknMed TokenMedia, ct token.ClaimsTransformer) error {
+	// re-sign the access and refresh tokens
+	newAccessTkn, newRefreshTkn, err := p.tokenBuilder.ReSigningTokenWithClaims(tknMed.AccessToken, tknMed.RefreshToken, ct)
+	if err != nil {
+		return err
+	}
+
+	// assign the re-signed tokens respectively
+	tknMed.AccessToken = newAccessTkn
+	tknMed.RefreshToken = newRefreshTkn
+
+	return nil
+}
+
+// switch to user specified company after validations
+func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
+
+	_ = req.ParseForm()
+
+	ClientSecret := req.FormValue("ClientSecret")
+	CompanyID := req.FormValue("CompanyID")
+	if ClientSecret != "" || CompanyID != "" {
+
+	}
+
+	l := log.WithField("function", "SwitchCompany")
+	auth := req.Header.Get("Authorization")
+
+	if auth == "" {
+		// No auth header provided, so don't attempt to load a session
+		//TODO
+	}
+	if strings.HasPrefix(auth, "Bearer") || strings.HasPrefix(auth, "bearer") {
+		auth = strings.Split(auth, " ")[1]
+	}
+
+	tokenString := auth
+	claims := jwt_go.MapClaims{}
+
+	_, err := jwt_go.ParseWithClaims(tokenString, claims, func(token *jwt_go.Token) (interface{}, error) {
+		return []byte("<YOUR VERIFICATION KEY>"), nil
+	})
+
+	session, err := p.getAuthenticatedSession(rw, req)
+	if err != nil || session == nil {
+		//
+	}
+	sub := ""
+	for key, val := range claims {
+		if key == "sub" {
+			sub = val.(string)
+		}
+	}
+
+	//sub, err := pejwt.Subject(context.Context)
+	if sub == "" {
+		l.WithField("err", err).Error()
+		return //ctx.InternalServerError(authInternalServerError())
+	}
+	req1 := &corpus.SubjectID{
+		SubId: sub,
+	}
+
+	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
+	if userInfo == nil || err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("GetUserBySubject()")
+		return //ctx.InternalServerError(authInternalServerError())
+	}
+	//check if the compID to switch belongs to user or not
+	compIDToSwitch, _ := strconv.ParseInt(CompanyID, 10, 64)
+	canMakeValidSwitch := false
+	for _, c := range userInfo.Companies {
+		if c.GetId() == compIDToSwitch {
+			canMakeValidSwitch = true
+			break
+		}
+	}
+	// if compID does not belong to user then return error
+	if !canMakeValidSwitch {
+		l.WithFields(log.Fields{"compIDToSwitch": compIDToSwitch}).Error("not a valid company to switch")
+		return //ctx.Forbidden(authCompSwitchError())
+	}
+	data := url.Values{}
+	data.Set("grant_type", "refresh_token")
+	data.Set("client_id", session.ClientId)
+	data.Set("refresh_token", session.RefreshToken)
+	//if ClientSecret != "" {
+	data.Set("client_secret", "aea2e1ff-bed5-40db-a6c1-99f9dad7b352")
+	//}
+	// get auth from Keycloak
+	tknMed, err := p.authToken(data)
+	if tknMed == nil || err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("authToken()")
+		//return err
+	}
+	transformer, err := p.createClaimsTransformer(req.Context(), compIDToSwitch)
+	if err != nil {
+		//	return err
+	}
+
+	// re-sign the access and refresh tokens
+	err = p.reSignTokensWithClaims(*tknMed, transformer)
+	if err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("reSignTokensWithClaims()")
+		//return ctx.InternalServerError(authInternalServerError())
+	}
+	json.NewEncoder(rw).Encode(tknMed)
 
 }
 
