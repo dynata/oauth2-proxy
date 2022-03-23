@@ -2,11 +2,9 @@ package token
 
 import (
 	"crypto/rsa"
-	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 
-	jwtgo "github.com/golang-jwt/jwt/v4"
+	jwtgo "github.com/dgrijalva/jwt-go"
 	pe_jwt "github.com/researchnow/pe-go-lib/jwt"
 	log "github.com/sirupsen/logrus"
 )
@@ -44,6 +42,7 @@ func (t *TokenBuilder) ReSigningTokenWithClaims(at, rt string, // claims map[str
 		l.Error(err)
 		return "", "", err
 	}
+
 	rtNew, err := t.reSignRefreshToken(rt, claimTransformer)
 	if err != nil {
 		l.Error(err)
@@ -56,16 +55,16 @@ func (t *TokenBuilder) ReSigningTokenWithClaims(at, rt string, // claims map[str
 func (t *TokenBuilder) reSignAccessToken(at string, ct ClaimsTransformer) (string, error) {
 	l := log.WithField("function", "reSignAccessToken")
 
-	jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder("http://localhost:8080/auth/realms/pe/protocol/openid-connect/certs")
-	tkn, err := pe_jwt.NewToken(at, jwkKeyFinder)
+	// jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder("http://localhost:8080/auth/realms/pe/protocol/openid-connect/certs")
+	tkn, err := pe_jwt.NewToken(at, t.jwkKeyFinder)
 	if err != nil {
 		return "", err
 	}
 
 	l.Debugf("is new access token verified: %v\n", tkn.Token.Valid)
 
-	claims, err := tkn.Claims("")
-	if err != nil {
+	claims, ok := tkn.Token.Claims.(jwtgo.MapClaims)
+	if !ok {
 		return "", fmt.Errorf("can't resolve claims in keycloak access token")
 	}
 
@@ -79,18 +78,8 @@ func (t *TokenBuilder) reSignAccessToken(at string, ct ClaimsTransformer) (strin
 	atNew.Header = tkn.Token.Header // preserve the kid
 	// l.Debugf("header %v: ", atNew.Header)
 	// l.Debugf("claims %v: ", atNew.Claims)
-	signBytes, err := ioutil.ReadFile("./kc.local.private.pem")
-	if err != nil {
-		l.Error(err)
-		//return nil
-	}
 
-	signKey, err := jwtgo.ParseRSAPrivateKeyFromPEM(signBytes)
-	if err != nil {
-		l.Error(err)
-		//return nil
-	}
-	signedToken, err := atNew.SignedString(signKey)
+	signedToken, err := atNew.SignedString(t.signKey)
 	if err != nil {
 		return "", err
 	}
@@ -107,10 +96,9 @@ func (t *TokenBuilder) reSignRefreshToken(refreshToken string, ct ClaimsTransfor
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 		// hmacSampleSecret is a []byte containing your secret, e.g. []byte("my_secret_key")
-		hmacSecretHex := []byte("0a079b870b4f04557ac04290e3ef5714cefa9b12b4a81f5d3792684ff288384d3ae2de33a77cfbb453e452d6e6aaa63c52b3967d19f7ff0c8ea10a892d596360")
-		hmacSecret := make([]byte, hex.DecodedLen(len(hmacSecretHex)))
-		return hmacSecret, nil
+		return t.hmacSecret, nil
 	})
+
 	if err != nil {
 		return "", err
 	}

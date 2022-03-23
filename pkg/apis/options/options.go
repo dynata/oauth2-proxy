@@ -76,6 +76,9 @@ type Options struct {
 	jwtBearerVerifiers    []*oidc.IDTokenVerifier
 	realClientIPParser    ipapi.RealClientIPParser
 	allClientIDs          []string
+
+	HmacSecretHexKey string `flag:"hmac-secret-hex-key" cfg:"hmac_secret_hex_key"`
+	PrivateKeyPath   string `flag:"private-key-path" cfg:"private_key_path"`
 }
 
 // Options for Getting internal values
@@ -161,6 +164,9 @@ func NewFlagSet() *pflag.FlagSet {
 
 	flagSet.String("signature-key", "", "GAP-Signature request signature key (algorithm:secretkey)")
 	flagSet.Bool("gcp-healthchecks", false, "Enable GCP/GKE healthcheck endpoints")
+
+	flagSet.String("hmac-secret-hex-key", "", "secret hex key to resign tokens")
+	flagSet.String("private-key-path", "./kc.local.private.pem", "private path of key to resign tokens")
 
 	flagSet.AddFlagSet(cookieFlagSet())
 	flagSet.AddFlagSet(loggingFlagSet())

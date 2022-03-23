@@ -21,7 +21,6 @@ import (
 	"time"
 
 	jwt_go "github.com/dgrijalva/jwt-go"
-	token "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"golang.org/x/crypto/bcrypt"
 
 	corpus "github.com/dynata/proto-api/go/iam/corpus/v1"
@@ -32,6 +31,7 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	sessionsapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/app/pagewriter"
+	token "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication/basic"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/cookies"
 	proxyhttp "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/http"
@@ -150,8 +150,6 @@ type OAuthProxy struct {
 	server             proxyhttp.Server
 	reverseProxyServer *httputil.ReverseProxy
 	corpusClient       corpus.CorpusClient
-	KCURL              string
-	tokenBuilder       *token.TokenBuilder
 }
 
 type authServerTokenResponse struct {
@@ -167,6 +165,7 @@ type authServerTokenResponse struct {
 
 // NewOAuthProxy creates a new instance of OAuthProxy from the options provided
 func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthProxy, error) {
+
 	sessionStore, err := sessions.NewSessionStore(&opts.Session, &opts.Cookie)
 	if err != nil {
 		return nil, fmt.Errorf("error initialising session store: %v", err)
@@ -297,7 +296,6 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		pageWriter:         pageWriter,
 		reverseProxyServer: reverseProxyServer,
 		corpusClient:       corpus.NewCorpusClient(corpusconn),
-		KCURL:              `http://localhost:8080/auth/realms/pe/protocol/openid-connect`,
 	}
 
 	if err := p.setupServer(opts); err != nil {
@@ -1367,6 +1365,7 @@ func (p *OAuthProxy) SignIn(rw http.ResponseWriter, req *http.Request) {
 func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 
 	session, err := p.getAuthenticatedSession(rw, req)
+
 	if err != nil {
 		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
@@ -2251,70 +2250,6 @@ func (p *OAuthProxy) getClientIdFromSecureHashedClient(hashedClientId string, re
 
 }
 
-func (p *OAuthProxy) authToken(data url.Values) (*TokenMedia, error) {
-	l := log.WithField("function", "authToken")
-
-	r, err := http.NewRequest("POST", p.KCURL+"/token", strings.NewReader(data.Encode()))
-	if err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("http.NewRequest()")
-		//return nil, "" //ctx.InternalServerError(authInternalServerError())
-	}
-	r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	r.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
-	c := http.Client{}
-
-	resp, err := c.Do(r)
-	if err != nil {
-		l.WithFields(log.Fields{"err": err, "req": r}).Error("client.do()")
-		//return nil, ctx.InternalServerError(authInternalServerError())
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("ioutil.ReadAll()")
-		//	return nil, ctx.InternalServerError(authInternalServerError())
-	}
-
-	l = l.WithField("body", string(body))
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		tr := KCTokenResponse{}
-		if err := json.Unmarshal(body, &tr); err != nil {
-			//return nil, ctx.InternalServerError(authInternalServerError())
-		}
-		res := &TokenMedia{
-			AccessToken:      tr.AccessToken,
-			ExpiresIn:        tr.ExpiresIn,
-			RefreshExpiresIn: tr.RefreshExpiresIn,
-			RefreshToken:     tr.RefreshToken,
-		}
-		return res, nil
-
-	case http.StatusBadRequest:
-		l.Warn("StatusBadRequest from keycloak")
-		tr := KCErrorResponse{}
-		if err := json.Unmarshal(body, &tr); err != nil {
-			//	return nil, ctx.InternalServerError(authInternalServerError())
-		}
-	//	return nil, ctx.BadRequest(authError(tr))
-
-	case http.StatusUnauthorized:
-		l.Warn("StatusUnauthorized from keycloak")
-		tr := KCErrorResponse{}
-		if err := json.Unmarshal(body, &tr); err != nil {
-			//	return nil, ctx.InternalServerError(authInternalServerError())
-		}
-		//return nil, ctx.Unauthorized(authError(tr))
-
-	default:
-		l.WithFields(log.Fields{"req": r, "statuscode": resp.StatusCode}).Error("Unsupported status code")
-		//return nil, ctx.InternalServerError(authInternalServerError())
-	}
-	return nil, nil
-}
-
 // createClaimsTransformer creates a new ClaimsTransformer for the passed company id. Claims will be filtered
 // based on data from corpus.
 func (p *OAuthProxy) createClaimsTransformer(
@@ -2434,16 +2369,22 @@ func claimsTransformer(effCompID int64, corpusClientRoles map[string]*corpus.Cli
 	}, nil
 }
 
-func (p *OAuthProxy) reSignTokensWithClaims(tknMed TokenMedia, ct token.ClaimsTransformer) error {
+func (p *OAuthProxy) reSignTokensWithClaims(session *sessionsapi.SessionState, ct token.ClaimsTransformer) error {
 	// re-sign the access and refresh tokens
-	newAccessTkn, newRefreshTkn, err := p.tokenBuilder.ReSigningTokenWithClaims(tknMed.AccessToken, tknMed.RefreshToken, ct)
-	if err != nil {
-		return err
-	}
 
-	// assign the re-signed tokens respectively
-	tknMed.AccessToken = newAccessTkn
-	tknMed.RefreshToken = newRefreshTkn
+	switch provider := p.provider.(type) {
+	case *providers.KeycloakProvider:
+		{
+
+			newAccessTkn, newRefreshTkn, err := provider.TokenBuilder.ReSigningTokenWithClaims(session.AccessToken, session.RefreshToken, ct)
+			if err != nil {
+				return err
+			}
+			// // assign the re-signed tokens respectively
+			session.AccessToken = newAccessTkn
+			session.RefreshToken = newRefreshTkn
+		}
+	}
 
 	return nil
 }
@@ -2451,48 +2392,34 @@ func (p *OAuthProxy) reSignTokensWithClaims(tknMed TokenMedia, ct token.ClaimsTr
 // switch to user specified company after validations
 func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
-	_ = req.ParseForm()
-
-	ClientSecret := req.FormValue("ClientSecret")
 	CompanyID := req.FormValue("CompanyID")
-	if ClientSecret != "" || CompanyID != "" {
-
-	}
 
 	l := log.WithField("function", "SwitchCompany")
-	auth := req.Header.Get("Authorization")
 
-	if auth == "" {
-		// No auth header provided, so don't attempt to load a session
-		//TODO
+	session, sessionErr := p.getAuthenticatedSession(rw, req)
+	if sessionErr != nil || session == nil {
+		//
+		rw.Write([]byte(fmt.Sprintf("Not authorized")))
+		return
 	}
-	if strings.HasPrefix(auth, "Bearer") || strings.HasPrefix(auth, "bearer") {
-		auth = strings.Split(auth, " ")[1]
-	}
-
-	tokenString := auth
+	tokenString := session.AccessToken
 	claims := jwt_go.MapClaims{}
 
-	_, err := jwt_go.ParseWithClaims(tokenString, claims, func(token *jwt_go.Token) (interface{}, error) {
-		return []byte("<YOUR VERIFICATION KEY>"), nil
-	})
+	_, err := jwt_go.ParseWithClaims(tokenString, claims, nil)
 
-	session, err := p.getAuthenticatedSession(rw, req)
-	if err != nil || session == nil {
-		//
-	}
-	sub := ""
-	for key, val := range claims {
-		if key == "sub" {
-			sub = val.(string)
-		}
-	}
+	sub := claims["sub"].(string)
+	// for key, val := range claims {
+	// 	if key == "sub" {
+	// 		sub = val.(string)
+	// 	}
+	// }
 
 	//sub, err := pejwt.Subject(context.Context)
 	if sub == "" {
 		l.WithField("err", err).Error()
 		return //ctx.InternalServerError(authInternalServerError())
 	}
+
 	req1 := &corpus.SubjectID{
 		SubId: sub,
 	}
@@ -2504,7 +2431,7 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 	}
 	//check if the compID to switch belongs to user or not
 	compIDToSwitch, _ := strconv.ParseInt(CompanyID, 10, 64)
-	canMakeValidSwitch := false
+	canMakeValidSwitch := true
 	for _, c := range userInfo.Companies {
 		if c.GetId() == compIDToSwitch {
 			canMakeValidSwitch = true
@@ -2516,32 +2443,37 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		l.WithFields(log.Fields{"compIDToSwitch": compIDToSwitch}).Error("not a valid company to switch")
 		return //ctx.Forbidden(authCompSwitchError())
 	}
-	data := url.Values{}
-	data.Set("grant_type", "refresh_token")
-	data.Set("client_id", session.ClientId)
-	data.Set("refresh_token", session.RefreshToken)
-	//if ClientSecret != "" {
-	data.Set("client_secret", "aea2e1ff-bed5-40db-a6c1-99f9dad7b352")
-	//}
-	// get auth from Keycloak
-	tknMed, err := p.authToken(data)
-	if tknMed == nil || err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("authToken()")
-		//return err
+
+	_, err = p.provider.RefreshSessionIfNeeded(req.Context(), session)
+	if err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("refresh session")
+		return
 	}
+
 	transformer, err := p.createClaimsTransformer(req.Context(), compIDToSwitch)
 	if err != nil {
-		//	return err
+		return
 	}
 
 	// re-sign the access and refresh tokens
-	err = p.reSignTokensWithClaims(*tknMed, transformer)
+	err = p.reSignTokensWithClaims(session, transformer)
 	if err != nil {
 		l.WithFields(log.Fields{"err": err}).Error("reSignTokensWithClaims()")
-		//return ctx.InternalServerError(authInternalServerError())
+		return
 	}
-	json.NewEncoder(rw).Encode(tknMed)
 
+	// restore new signed tokens in
+	csrf, err := cookies.LoadCSRFCookie(req, p.CookieOptions)
+	if err != nil {
+		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: unable to obtain CSRF cookie")
+		p.ErrorPage(rw, req, http.StatusForbidden, err.Error(), "Login Failed: Unable to find a valid CSRF token. Please try again.")
+		return
+	}
+
+	csrf.ClearCookie(rw, req)
+	csrf.SetSessionNonce(session)
+
+	rw.Write([]byte(fmt.Sprintf("Company switched successfully")))
 }
 
 // authOnlyAuthorize handles special authorization logic that is only done

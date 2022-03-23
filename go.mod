@@ -9,6 +9,7 @@ require (
 	github.com/bitly/go-simplejson v0.5.0
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
 	github.com/bsm/redislock v0.7.0
+	github.com/caarlos0/env/v6 v6.9.1 // indirect
 	github.com/coreos/go-oidc v2.2.1+incompatible
 	github.com/dgrijalva/jwt-go v3.2.1-0.20200107013213-dc14462fd587+incompatible
 	github.com/dynata/proto-api/go v0.0.0-20220311135733-f0efb6bd693d
@@ -16,9 +17,9 @@ require (
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/go-redis/redis/v8 v8.2.3
+	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang-jwt/jwt/v4 v4.4.0 // indirect
 	github.com/google/uuid v1.2.0
-	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/justinas/alice v1.2.0
 	github.com/mbland/hmacauth v0.0.0-20170912233209-44256dfd4bfa
 	github.com/mitchellh/mapstructure v1.1.2
@@ -29,7 +30,6 @@ require (
 	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect
 	github.com/prometheus/client_golang v1.9.0
 	github.com/researchnow/pe-go-lib v1.0.20
-	github.com/researchnow/pe-goa-lib v0.0.0-20210316002147-6d81e772a909
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cast v1.3.1 // indirect
 	github.com/spf13/pflag v1.0.5

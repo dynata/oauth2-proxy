@@ -3,23 +3,30 @@ package providers
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
+	auth "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests"
+	pe_jwt "github.com/researchnow/pe-go-lib/jwt"
 	"golang.org/x/oauth2"
 )
 
 type KeycloakProvider struct {
 	*ProviderData
-	SkipNonce bool
+	SkipNonce    bool
+	TokenBuilder *auth.TokenBuilder
 }
 
 var _ Provider = (*KeycloakProvider)(nil)
@@ -64,6 +71,7 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 		Host:   p.IssuerURL.Host,
 		Path:   p.IssuerURL.Path + "/account/password",
 	}
+
 	return &KeycloakProvider{
 		ProviderData: p,
 		SkipNonce:    true,
@@ -485,6 +493,45 @@ func (p *KeycloakProvider) PerformPasswordGrant(ctx context.Context, username, p
 	}
 
 	return ss, err
+}
+
+// SetUsers configures allowed usernames
+func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKey string, rsaPrivateKeyPath string) error {
+	//
+	jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder(p.JwksURL.String())
+	if err != nil {
+		log.Fatal("Invalid JWK url provided")
+	}
+
+	hmacSecretHex := []byte(hmacSecretKey)
+	hmacSecret := make([]byte, hex.DecodedLen(len(hmacSecretHex)))
+	_, err = hex.Decode(hmacSecret, hmacSecretHex)
+	if err != nil {
+		// log.Error(err)
+		return err
+	}
+	// hmacSecret := make([]byte, hex.DecodedLen(len(hmacSecretHex)))
+	// _, err = hex.Decode(hmacSecret, hmacSecretHex)
+	// if err != nil {
+	// 	log.Fatal("hmax secret issue")
+	// 	return nil
+	// }
+
+	signBytes, err := ioutil.ReadFile(rsaPrivateKeyPath)
+	if err != nil {
+		log.Fatal("RSA private file not found")
+		return nil
+	}
+
+	signKey, err := jwt.ParseRSAPrivateKeyFromPEM(signBytes)
+	if err != nil {
+		log.Fatal("RSA private file parsing issue")
+		return nil
+	}
+
+	p.TokenBuilder = auth.NewTokenBuilder(jwkKeyFinder, hmacSecret, signKey)
+
+	return nil
 }
 
 func validateKeycloakToken(ctx context.Context, p Provider, s *sessions.SessionState, header http.Header) bool {
