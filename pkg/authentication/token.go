@@ -51,19 +51,23 @@ func (t *TokenBuilder) ReSigningTokenWithClaims(at, rt string, // claims map[str
 
 	return atNew, rtNew, nil
 }
-
 func (t *TokenBuilder) reSignAccessToken(at string, ct ClaimsTransformer) (string, error) {
 	l := log.WithField("function", "reSignAccessToken")
 
 	// jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder("http://localhost:8080/auth/realms/pe/protocol/openid-connect/certs")
-	tkn, err := pe_jwt.NewToken(at, t.jwkKeyFinder)
+	// tkn, err := pe_jwt.NewToken(at, t.jwkKeyFinder)
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	token, _, err := new(jwtgo.Parser).ParseUnverified(at, jwtgo.MapClaims{})
 	if err != nil {
 		return "", err
 	}
 
-	l.Debugf("is new access token verified: %v\n", tkn.Token.Valid)
+	l.Debugf("is new access token verified: %v\n", token.Valid)
 
-	claims, ok := tkn.Token.Claims.(jwtgo.MapClaims)
+	claims, ok := token.Claims.(jwtgo.MapClaims)
 	if !ok {
 		return "", fmt.Errorf("can't resolve claims in keycloak access token")
 	}
@@ -75,7 +79,7 @@ func (t *TokenBuilder) reSignAccessToken(at string, ct ClaimsTransformer) (strin
 	injectClaims(claims, clms)
 
 	atNew := jwtgo.NewWithClaims(jwtgo.SigningMethodRS256, claims)
-	atNew.Header = tkn.Token.Header // preserve the kid
+	atNew.Header = token.Header // preserve the kid
 	// l.Debugf("header %v: ", atNew.Header)
 	// l.Debugf("claims %v: ", atNew.Claims)
 

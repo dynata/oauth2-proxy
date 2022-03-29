@@ -218,8 +218,8 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 
 // ValidateSession checks that the session's IDToken is still valid
 func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.SessionState) bool {
-	isTokenValid := validateKeycloakToken(ctx, p, s, nil)
-
+	//isTokenValid := validateKeycloakToken(ctx, p, s, nil)
+	isTokenValid := true // skiping introspection during validation
 	verifier := p.Verifier
 
 	verifier = getClientVerifier(ctx, verifier)

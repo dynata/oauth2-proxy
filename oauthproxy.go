@@ -2431,7 +2431,7 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 	}
 	//check if the compID to switch belongs to user or not
 	compIDToSwitch, _ := strconv.ParseInt(CompanyID, 10, 64)
-	canMakeValidSwitch := true
+	canMakeValidSwitch := false
 	for _, c := range userInfo.Companies {
 		if c.GetId() == compIDToSwitch {
 			canMakeValidSwitch = true
@@ -2444,11 +2444,17 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		return //ctx.Forbidden(authCompSwitchError())
 	}
 
-	_, err = p.provider.RefreshSessionIfNeeded(req.Context(), session)
+	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 	if err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("refresh session")
+		logger.Printf("Error refreshing session: %v", err)
+		rw.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	// _, err = p.provider.RefreshSessionIfNeeded(req.Context(), session)
+	// if err != nil {
+	// 	l.WithFields(log.Fields{"err": err}).Error("refresh session")
+	// 	return
+	// }
 
 	transformer, err := p.createClaimsTransformer(req.Context(), compIDToSwitch)
 	if err != nil {
@@ -2461,17 +2467,6 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		l.WithFields(log.Fields{"err": err}).Error("reSignTokensWithClaims()")
 		return
 	}
-
-	// restore new signed tokens in
-	csrf, err := cookies.LoadCSRFCookie(req, p.CookieOptions)
-	if err != nil {
-		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: unable to obtain CSRF cookie")
-		p.ErrorPage(rw, req, http.StatusForbidden, err.Error(), "Login Failed: Unable to find a valid CSRF token. Please try again.")
-		return
-	}
-
-	csrf.ClearCookie(rw, req)
-	csrf.SetSessionNonce(session)
 
 	rw.Write([]byte(fmt.Sprintf("Company switched successfully")))
 }
