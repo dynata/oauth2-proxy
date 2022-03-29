@@ -1099,7 +1099,7 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 	originalRefreshToken := session.RefreshToken
 
 	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
-	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, session.RefreshToken)
+	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
 	req = req.Clone(ctx)
 
@@ -2443,6 +2443,13 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		l.WithFields(log.Fields{"compIDToSwitch": compIDToSwitch}).Error("not a valid company to switch")
 		return //ctx.Forbidden(authCompSwitchError())
 	}
+
+	originalRefreshToken := session.RefreshToken
+
+	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
+	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
+
+	req = req.Clone(ctx)
 
 	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 	if err != nil {
