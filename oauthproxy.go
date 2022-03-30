@@ -2467,8 +2467,12 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		l.WithFields(log.Fields{"err": err}).Error("reSignTokensWithClaims()")
 		return
 	}
-
-	rw.Write([]byte(fmt.Sprintf("Company switched successfully")))
+	res := TokenMedia{AccessToken: session.AccessToken,
+		ExpiresIn:        int(session.AccessExpiresIn),
+		RefreshToken:     session.RefreshToken,
+		RefreshExpiresIn: int(session.RefreshExpiresIn),
+	}
+	json.NewEncoder(rw).Encode(res)
 }
 
 // authOnlyAuthorize handles special authorization logic that is only done
