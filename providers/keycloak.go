@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -500,7 +499,8 @@ func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKey string, rsaPrivateKeyP
 	//
 	jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder(p.JwksURL.String())
 	if err != nil {
-		log.Fatal("Invalid JWK url provided")
+		//log.Fatal("Invalid JWK url provided")
+		return err
 	}
 
 	hmacSecretHex := []byte(hmacSecretKey)
@@ -519,14 +519,14 @@ func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKey string, rsaPrivateKeyP
 
 	signBytes, err := ioutil.ReadFile(rsaPrivateKeyPath)
 	if err != nil {
-		log.Fatal("RSA private file not found")
-		return nil
+		//log.Fatal("RSA private file not found")
+		return err
 	}
 
 	signKey, err := jwt.ParseRSAPrivateKeyFromPEM(signBytes)
 	if err != nil {
-		log.Fatal("RSA private file parsing issue")
-		return nil
+		//log.Fatal("RSA private file parsing issue")
+		return err
 	}
 
 	p.TokenBuilder = auth.NewTokenBuilder(jwkKeyFinder, hmacSecret, signKey)

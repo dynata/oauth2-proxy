@@ -297,7 +297,10 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 
 		// make builder to sign both tokens
 		if len(o.HmacSecretHexKey) != 0 && len(o.PrivateKeyPath) != 0 {
-			p.MakeTokenBuilder(o.HmacSecretHexKey, o.PrivateKeyPath)
+			err := p.MakeTokenBuilder(o.HmacSecretHexKey, o.PrivateKeyPath)
+			if err != nil {
+				msgs = append(msgs, "invalid Keycloak Configuration: "+err.Error())
+			}
 		}
 	case *providers.GoogleProvider:
 		if o.Providers[0].GoogleConfig.ServiceAccountJSON != "" {

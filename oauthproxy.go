@@ -2444,19 +2444,6 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		return //ctx.Forbidden(authCompSwitchError())
 	}
 
-	originalRefreshToken := session.RefreshToken
-
-	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
-	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
-
-	req = req.Clone(ctx)
-
-	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
-	if err != nil {
-		logger.Printf("Error refreshing session: %v", err)
-		rw.WriteHeader(http.StatusUnauthorized)
-		return
-	}
 	// _, err = p.provider.RefreshSessionIfNeeded(req.Context(), session)
 	// if err != nil {
 	// 	l.WithFields(log.Fields{"err": err}).Error("refresh session")
@@ -2468,12 +2455,20 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// re-sign the access and refresh tokens
-	err = p.reSignTokensWithClaims(session, transformer)
+	originalRefreshToken := session.RefreshToken
+
+	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
+	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
+
+	req = req.Clone(ctx)
+
+	err = p.sessionLoader.RefreshSessionForcefullyWithTransformer(rw, req, session, &transformer, p.reSignTokensWithClaims)
 	if err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("reSignTokensWithClaims()")
+		logger.Printf("Error refreshing session: %v", err)
+		rw.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+
 	res := TokenMedia{AccessToken: session.AccessToken,
 		ExpiresIn:        int(session.AccessExpiresIn),
 		RefreshToken:     session.RefreshToken,
