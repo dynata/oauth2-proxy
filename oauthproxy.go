@@ -890,6 +890,21 @@ func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request,
 	p.OAuthStart(rw, req, isLibCall)
 }
 
+// primaryCompID will return the primary compnay ID from userInfo if present else return 0, error
+func primaryCompID(userInfo *corpus.UserDetailResponse) (int64, error) {
+	if userInfo == nil {
+		return 0, errors.New("userInfo is nil")
+	}
+
+	for _, c := range userInfo.Companies {
+		if c.GetIsPrimary() {
+			return c.GetId(), nil
+		}
+	}
+
+	return 0, errors.New("userInfo has no primary company")
+}
+
 // Mock Token API
 func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request) {
 	prepareNoCache(rw)
@@ -958,10 +973,57 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
-
+				l := log.WithField("function", "refresh-token")
 				// Force refresh token approach
 				originalRefreshToken := req.FormValue("refresh_token")
+				tokenString := originalRefreshToken
+				claims := jwt_go.MapClaims{}
 
+				_, err := jwt_go.ParseWithClaims(tokenString, claims, nil)
+				// if err != nil {
+				// 	logger.Printf("Error converting refreshtoken: %v", err)
+				// 	rw.WriteHeader(http.StatusUnauthorized)
+				// 	return
+				// }
+
+				var effCompID int64
+				if _, ok := claims["effective_company_id"]; ok {
+
+					effCompIDClaim := claims["effective_company_id"].(float64)
+					effCompID = int64(effCompIDClaim)
+				} else {
+					effCompID = 0
+				}
+
+				sub := claims["sub"].(string)
+				if sub == "" {
+					logger.Printf("Claim sub not found: %v", err)
+					rw.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				req1 := &corpus.SubjectID{
+					SubId: sub,
+				}
+
+				userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
+				if userInfo == nil || err != nil {
+					l.WithFields(log.Fields{"err": err}).Error("GetUserBySubject()")
+					return //ctx.InternalServerError(authInternalServerError())
+				}
+				// get the primary company ID from userInfo
+				if effCompID == 0 {
+
+					effCompID, err = primaryCompID(userInfo)
+				}
+				if err != nil {
+					l.WithFields(log.Fields{"err": err}).Error("primaryCompID()")
+					rw.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				transformer, err := p.createClaimsTransformer(req.Context(), effCompID)
+				if err != nil {
+					return
+				}
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
 				ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
@@ -969,7 +1031,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				session := &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
 
-				err := p.sessionLoader.RefreshSessionForcefully(rw, req, session)
+				err = p.sessionLoader.RefreshSessionForcefullyWithTransformer(rw, req, session, &transformer, p.reSignTokensWithClaims)
 				if err != nil {
 					logger.Printf("Error refreshing session: %v", err)
 					rw.WriteHeader(http.StatusUnauthorized)
