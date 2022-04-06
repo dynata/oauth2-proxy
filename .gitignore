@@ -1,4 +1,5 @@
 oauth2-proxy
+oauth2-proxy-debug
 vendor
 dist
 release
@@ -8,6 +9,8 @@ release
 .bundle
 c.out
 .vscode
+*.hex
+*.pem
 
 # Go.gitignore
 # Compiled Object files, Static and Dynamic libs (Shared Objects)

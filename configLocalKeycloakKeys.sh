@@ -43,7 +43,7 @@ fi
 
 # if local keycloak RSA/HMAC keys files already exist. export env vars used by barbican server
 export KC_HMAC_SECRET_HEX=`cat ${HMAC_KEY_FILE}`
-echo "KC_HMAC_SECRET_HEX => ${KC_HMAC_SECRET_HEX}"
+echo "KC_HMAC_SECRET_HEX => ${HMAC_KEY_FILE}"
 
 export KC_RSA_PRIVATE_PATH=${RSA_PRIVATE_FILE}
 echo "KC_RSA_PRIVATE_PATH => ${KC_RSA_PRIVATE_PATH}"

@@ -495,7 +495,7 @@ func (p *KeycloakProvider) PerformPasswordGrant(ctx context.Context, username, p
 }
 
 // SetUsers configures allowed usernames
-func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKey string, rsaPrivateKeyPath string) error {
+func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKeyPath string, rsaPrivateKeyPath string) error {
 	//
 	jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder(p.JwksURL.String())
 	if err != nil {
@@ -503,11 +503,14 @@ func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKey string, rsaPrivateKeyP
 		return err
 	}
 
-	hmacSecretHex := []byte(hmacSecretKey)
-	hmacSecret := make([]byte, hex.DecodedLen(len(hmacSecretHex)))
-	_, err = hex.Decode(hmacSecret, hmacSecretHex)
+	hmacSecretFileContent, err := ioutil.ReadFile(hmacSecretKeyPath)
 	if err != nil {
-		// log.Error(err)
+		return err
+	}
+	content := string(hmacSecretFileContent)
+	contentTrimmed := strings.TrimSuffix(content, "\n")
+	hmacSecret, err := hex.DecodeString(contentTrimmed)
+	if err != nil {
 		return err
 	}
 	// hmacSecret := make([]byte, hex.DecodedLen(len(hmacSecretHex)))

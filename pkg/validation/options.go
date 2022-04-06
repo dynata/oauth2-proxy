@@ -296,8 +296,8 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 		}
 
 		// make builder to sign both tokens
-		if len(o.HmacSecretHexKey) != 0 && len(o.PrivateKeyPath) != 0 {
-			err := p.MakeTokenBuilder(o.HmacSecretHexKey, o.PrivateKeyPath)
+		if len(o.KCHmacSecretHexKeyPath) != 0 && len(o.KCPrivateKeyPath) != 0 {
+			err := p.MakeTokenBuilder(o.KCHmacSecretHexKeyPath, o.KCPrivateKeyPath)
 			if err != nil {
 				msgs = append(msgs, "invalid Keycloak Configuration: "+err.Error())
 			}
