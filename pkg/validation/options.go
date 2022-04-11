@@ -193,6 +193,10 @@ func Validate(o *options.Options) error {
 		}
 	}
 
+	if o.CorpusServerAddress == "" {
+		msgs = append(msgs, "invalid corpus server address provider")
+	}
+
 	var redirectURL *url.URL
 	redirectURL, msgs = parseURL(o.RawRedirectURL, "redirect", msgs)
 	o.SetRedirectURL(redirectURL)

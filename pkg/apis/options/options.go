@@ -77,6 +77,8 @@ type Options struct {
 	realClientIPParser    ipapi.RealClientIPParser
 	allClientIDs          []string
 
+	CorpusServerAddress string `flag:"corpus-server-address" cfg:"corpus_server_address"`
+
 	KCHmacSecretHexKeyPath string `flag:"keycloak-hmac-secret-hex-key-path" cfg:"keycloak_hmac_secret_hex_key_path"`
 	KCPrivateKeyPath       string `flag:"keycloak-private-key-path" cfg:"keycloak_private_key_path"`
 }
@@ -164,6 +166,8 @@ func NewFlagSet() *pflag.FlagSet {
 
 	flagSet.String("signature-key", "", "GAP-Signature request signature key (algorithm:secretkey)")
 	flagSet.Bool("gcp-healthchecks", false, "Enable GCP/GKE healthcheck endpoints")
+
+	flagSet.String("corpus-server-address", "localhost:9022", "Corpus server address")
 
 	flagSet.String("keycloak-hmac-secret-hex-key-path", "./kc.hmac.secret.hex", "secret hex key path to resign tokens")
 	flagSet.String("keycloak-private-key-path", "./kc.local.private.pem", "private key path to resign tokens")

@@ -253,9 +253,9 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	reverseProxyServerURLString := reverseProxyServerURL.String()
 	reverseProxyServer := NewReverseProxy(reverseProxyServerURLString)
 
-	corpusconn, err := grpc.Dial(":9022", grpc.WithInsecure())
+	corpusconn, err := grpc.Dial(opts.CorpusServerAddress, grpc.WithInsecure())
 	if err != nil {
-		log.Fatal("could not connect to corpus client %s", err)
+		return nil, fmt.Errorf("could not connect to corpus client %v", err)
 	}
 
 	p := &OAuthProxy{
