@@ -167,7 +167,7 @@ func NewFlagSet() *pflag.FlagSet {
 	flagSet.String("signature-key", "", "GAP-Signature request signature key (algorithm:secretkey)")
 	flagSet.Bool("gcp-healthchecks", false, "Enable GCP/GKE healthcheck endpoints")
 
-	flagSet.String("corpus-server-address", "localhost:9022", "Corpus server address")
+	flagSet.String("corpus-server-address", "", "Corpus server address")
 
 	flagSet.String("keycloak-hmac-secret-hex-key-path", "./kc.hmac.secret.hex", "secret hex key path to resign tokens")
 	flagSet.String("keycloak-private-key-path", "./kc.local.private.pem", "private key path to resign tokens")

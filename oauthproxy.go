@@ -253,6 +253,8 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	reverseProxyServerURLString := reverseProxyServerURL.String()
 	reverseProxyServer := NewReverseProxy(reverseProxyServerURLString)
 
+	// ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	// corpusconn, err := grpc.DialContext(ctx, opts.CorpusServerAddress, grpc.WithInsecure(), grpc.WithBlock())
 	corpusconn, err := grpc.Dial(opts.CorpusServerAddress, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to corpus client %v", err)
@@ -1007,21 +1009,23 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
 				if userInfo == nil || err != nil {
-					l.WithFields(log.Fields{"err": err}).Error("GetUserBySubject()")
-					return //ctx.InternalServerError(authInternalServerError())
+					logger.Printf("Failed to make corpus client call: %v", err)
+					rw.WriteHeader(http.StatusInternalServerError)
+					return
 				}
 				// get the primary company ID from userInfo
 				if effCompID == 0 {
-
 					effCompID, err = primaryCompID(userInfo)
-				}
-				if err != nil {
-					l.WithFields(log.Fields{"err": err}).Error("primaryCompID()")
-					rw.WriteHeader(http.StatusUnauthorized)
-					return
+					if err != nil {
+						l.WithFields(log.Fields{"err": err}).Error("primaryCompID()")
+						rw.WriteHeader(http.StatusInternalServerError)
+						return
+					}
 				}
 				transformer, err := p.createClaimsTransformer(req.Context(), effCompID)
 				if err != nil {
+					l.WithFields(log.Fields{"err": err}).Error("createClaimsTransformer()")
+					rw.WriteHeader(http.StatusInternalServerError)
 					return
 				}
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
@@ -2316,7 +2320,6 @@ func (p *OAuthProxy) getClientIdFromSecureHashedClient(hashedClientId string, re
 // based on data from corpus.
 func (p *OAuthProxy) createClaimsTransformer(
 	ctx context.Context,
-	//authCtx generalAuthContext,
 	compID int64,
 ) (token.ClaimsTransformer, error) {
 	l := log.WithField("function", "createClaimsTransformer")
@@ -2326,13 +2329,13 @@ func (p *OAuthProxy) createClaimsTransformer(
 	)
 	if err != nil {
 		l.WithField("err", err).Error()
-		//return nil, authCtx.InternalServerError(authInternalServerError())
+		return nil, err
 	}
 
 	transformer, err := util.ClaimsTransformer(compID, clientRolesResp.Clients)
 	if err != nil {
 		l.WithFields(log.Fields{"err": err}).Error("claimsTransformer()")
-		//return nil, authCtx.InternalServerError(authInternalServerError())
+		return nil, err
 	}
 	return transformer, nil
 }
@@ -2394,8 +2397,9 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
 	if userInfo == nil || err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("GetUserBySubject()")
-		return //ctx.InternalServerError(authInternalServerError())
+		logger.Printf("Failed to make corpus client call: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	//check if the compID to switch belongs to user or not
 	compIDToSwitch, _ := strconv.ParseInt(CompanyID, 10, 64)
@@ -2420,6 +2424,8 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	transformer, err := p.createClaimsTransformer(req.Context(), compIDToSwitch)
 	if err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("createClaimsTransformer()")
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
