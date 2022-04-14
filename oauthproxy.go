@@ -716,19 +716,19 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 				SessionState          string   `json:"session_state,omitempty"`
 				MessageType           string   `json:"message_type,omitempty"`
 			}{
-				User:                  session.User,
-				Email:                 session.Email,
-				Groups:                session.Groups,
-				PreferredUsername:     session.PreferredUsername,
-				TokenType:             session.TokenType,
-				IDToken:               session.IDToken,
-				RefreshToken:          session.RefreshToken,
-				RefreshTokenExpiresIn: session.RefreshExpiresIn,
-				AccessToken:           session.AccessToken,
-				ExpiresIn:             session.AccessExpiresIn,
-				Scope:                 session.Scope,
-				SessionState:          session.SessionState,
-				MessageType:           constants.AuthMessageType,
+				User:              session.User,
+				Email:             session.Email,
+				Groups:            session.Groups,
+				PreferredUsername: session.PreferredUsername,
+				TokenType:         session.TokenType,
+				IDToken:           session.IDToken,
+				/* RefreshToken:          session.RefreshToken,
+				RefreshTokenExpiresIn: session.RefreshExpiresIn, */
+				AccessToken:  session.AccessToken,
+				ExpiresIn:    session.AccessExpiresIn,
+				Scope:        session.Scope,
+				SessionState: session.SessionState,
+				MessageType:  constants.AuthMessageType,
 			}
 
 			rw.Header().Set("Content-Type", "text/html;")
