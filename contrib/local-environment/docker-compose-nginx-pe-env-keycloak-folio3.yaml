@@ -45,6 +45,14 @@ services:
     hostname: oauth2-proxy
     volumes:
       - "./oauth2-proxy-pe-env-nginx-keycloak-folio3.cfg:/oauth2-proxy.cfg"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT}
+      - DATABASE_HOST=${DATABASE_HOST}
+      - DATABASE_PORT=${DATABASE_PORT}
+      - DATABASE_USERNAME=${DATABASE_USERNAME}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - KC_HMAC_SECRET_KEY_HEX=${KC_HMAC_SECRET_KEY_HEX}
+      - KC_PRIVATE_KEY=${KC_PRIVATE_KEY}
     restart: unless-stopped
     networks:
       oauth2-proxy:
