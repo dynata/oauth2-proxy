@@ -1116,7 +1116,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "text/html")
-
+	l := log.WithField("function", "AuthenticateSilently")
 	redirectURI := req.FormValue("redirect_uri")
 	if redirectURI != "" {
 		if !p.IsValidRedirect(redirectURI) {
@@ -1163,15 +1163,56 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 	// renew access token
 
 	originalRefreshToken := session.RefreshToken
+	claims := jwt_go.MapClaims{}
+
+	_, err = jwt_go.ParseWithClaims(originalRefreshToken, claims, nil)
+	session = &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
+
+	var effCompID int64
+	if _, ok := claims["effective_company_id"]; ok {
+
+		effCompIDClaim := claims["effective_company_id"].(float64)
+		effCompID = int64(effCompIDClaim)
+	} else {
+		effCompID = 0
+	}
+
+	sub := claims["sub"].(string)
+	if sub == "" {
+		logger.Printf("Claim sub not found: %v", err)
+		rw.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	req1 := &corpus.SubjectID{
+		SubId: sub,
+	}
+
+	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
+	if userInfo == nil || err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("GetUserBySubject()")
+		return //ctx.InternalServerError(authInternalServerError())
+	}
+	// get the primary company ID from userInfo
+	if effCompID == 0 {
+
+		effCompID, err = primaryCompID(userInfo)
+	}
+	if err != nil {
+		l.WithFields(log.Fields{"err": err}).Error("primaryCompID()")
+		rw.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	transformer, err := p.createClaimsTransformer(req.Context(), effCompID)
+	if err != nil {
+		return
+	}
 
 	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
 	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
 	req = req.Clone(ctx)
 
-	session = &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
-
-	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
+	err = p.sessionLoader.RefreshSessionForcefullyWithTransformer(rw, req, session, &transformer, p.reSignTokensWithClaims)
 	if err != nil {
 		logger.Printf("Error refreshing user session silently: %v", err)
 
@@ -1247,7 +1288,6 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 	iframeResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
 	rw.Write([]byte(iframeResponse))
 }
-
 func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "text/html")
 
