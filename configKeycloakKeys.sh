@@ -41,7 +41,19 @@ else
     echo ${kc_hmac_secret_hexed} > ${HMAC_KEY_FILE}
 
     # convert kc rsa private key to lkey file in local home dir
-    echo ${kc_rsa_private} | base64 -d | openssl rsa -inform DER -out $RSA_PRIVATE_FILE
+    kc_rsa_private_Key=`echo ${kc_rsa_private} | base64 -d | openssl rsa -inform DER`
+    echo "${kc_rsa_private_Key}" > $RSA_PRIVATE_FILE
+    
+    ENV="${ENVIRONMENT:-local-environment}"
+    dotEnvDestFile="contrib/$ENV/.env"
+    echo "" > $dotEnvDestFile
+    if [ -f "$dotEnvDestFile" ]
+    then
+        echo "wirting  to $dotEnvDestFile file"
+        echo "ENVIRONMENT='${ENV}'" > "$dotEnvDestFile"
+        echo "KC_HMAC_SECRET_KEY_HEX='$kc_hmac_secret_hexed'" > "$dotEnvDestFile"
+        echo "KC_PRIVATE_KEY='$kc_rsa_private_Key" >> "$dotEnvDestFile"
+    fi
   
 fi
 

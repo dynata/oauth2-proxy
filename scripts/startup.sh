@@ -7,14 +7,14 @@ if [ -z "$DATABASE_PORT" ] then echo "DATABASE_PORT is unset"; else echo "DATABA
 if [ -z "$DATABASE_USERNAME" ] then echo "DATABASE_USERNAME is unset"; else echo "DATABASE_USERNAME is set"; fi
 if [ -z "$DATABASE_PASSWORD" ] then echo "DATABASE_PASSWORD is unset"; else echo "DATABASE_PASSWORD is set"; fi
 
-ENV="${ENVIRONMENT:-local-enviromnent}"
+ENV="${ENVIRONMENT:-local-environment}"
 
 # cd /dynata/oauth2-proxy
 # ls -l
 # ./configKeycloakKeys.sh
 
-if [ "$ENV" == "local-enviromnent" ]; then
-  echo "executing local-enviromnent environment configuration"
+if [ "$ENV" == "local-environment" ]; then
+  echo "executing local-environment environment configuration"
   /bin/oauth2-proxy --config=/oauth2-proxy.cfg # mounted from docker-compose with correct configuration file
 else
   echo "executing non-local environment ($ENV) configuration"
