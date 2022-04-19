@@ -22,8 +22,8 @@ if [[ -f "${RSA_PRIVATE_FILE}" && -f "${HMAC_KEY_FILE}" ]]; then
     echo "kc RSA/HMAC files already exist locally"
 else
     echo "kc RSA/HMAC files do NOT exist locally. start preparing..."
-    DB_HOST="${DATABASE_HOST:-127.0.0.1}"
-    DB_PORT="${DATABASE_PORT:-13306}"
+    DB_HOST="${DATABASE_HOST:-mysql}"
+    DB_PORT="${DATABASE_PORT:-3306}"
     DB_USER="${DATABASE_USERNAME:-root}"
     DB_PASS="${DATABASE_PASSWORD:-root}"
     mysql --host=${DB_HOST} --port=${DB_PORT} --user=${DB_USER} --password=${DB_PASS} < kcComponentConfig.sql | awk -F ' ' '{print $2}' | sed -e '1d' > kc.temp

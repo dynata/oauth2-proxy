@@ -45,3 +45,4 @@ _testmain.go
 # docker build -f Dockerfile.dev .
 Dockerfile.dev
 contrib/local-environment/oauth2-proxy-pe-env-localhost.cfg
+.envrc

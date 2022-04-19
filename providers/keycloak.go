@@ -537,6 +537,30 @@ func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKeyPath string, rsaPrivate
 	return nil
 }
 
+// SetUsers configures allowed usernames
+func (p *KeycloakProvider) MakeTokenBuilderFromKeys(hmacSecretKey string, rsaPrivateKey string) error {
+	//
+	jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder(p.JwksURL.String())
+	if err != nil {
+		return err
+	}
+
+	hmacSecret := []byte(hmacSecretKey)
+	if err != nil {
+		return err
+	}
+
+	signKey, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(rsaPrivateKey))
+	if err != nil {
+		//log.Fatal("RSA private file parsing issue")
+		return err
+	}
+
+	p.TokenBuilder = auth.NewTokenBuilder(jwkKeyFinder, hmacSecret, signKey)
+
+	return nil
+}
+
 func validateKeycloakToken(ctx context.Context, p Provider, s *sessions.SessionState, header http.Header) bool {
 	if s == nil || s.AccessToken == "" || p.Data().ValidateURL == nil || p.Data().ValidateURL.String() == "" {
 		return false

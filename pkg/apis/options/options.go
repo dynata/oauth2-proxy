@@ -79,7 +79,10 @@ type Options struct {
 
 	CorpusServerAddress string `flag:"corpus-server-address" cfg:"corpus_server_address"`
 
-	KCHmacSecretHexKeyPath string `flag:"keycloak-hmac-secret-hex-key-path" cfg:"keycloak_hmac_secret_hex_key_path"`
+	KCHmacSecretKeyHex string `cfg:",internal" env:"KC_HMAC_SECRET_KEY_HEX"`
+	KCPrivateKey       string `cfg:",internal" env:"KC_PRIVATE_KEY"`
+
+	KCHmacSecretKeyHexPath string `flag:"keycloak-hmac-secret-hex-key-path" cfg:"keycloak_hmac_secret_hex_key_path"`
 	KCPrivateKeyPath       string `flag:"keycloak-private-key-path" cfg:"keycloak_private_key_path"`
 }
 
@@ -169,8 +172,8 @@ func NewFlagSet() *pflag.FlagSet {
 
 	flagSet.String("corpus-server-address", "", "Corpus server address")
 
-	flagSet.String("keycloak-hmac-secret-hex-key-path", "./kc.hmac.secret.hex", "secret hex key path to resign tokens")
-	flagSet.String("keycloak-private-key-path", "./kc.local.private.pem", "private key path to resign tokens")
+	flagSet.String("keycloak-hmac-secret-hex-key-path", "./kc.hmac.secret.hex", "secret hex key file path to resign tokens")
+	flagSet.String("keycloak-private-key-path", "./kc.local.private.pem", "private key file path to resign tokens")
 
 	flagSet.AddFlagSet(cookieFlagSet())
 	flagSet.AddFlagSet(loggingFlagSet())

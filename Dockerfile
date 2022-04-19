@@ -38,6 +38,9 @@ COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/oauth2-proxy /bin/oau
 COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/jwt_signing_key.pem /etc/ssl/private/jwt_signing_key.pem
 COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/scripts/startup.sh /dynata/oauth2-proxy/scripts/startup.sh
 COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/contrib /dynata/oauth2-proxy/contrib
+COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/scripts/startup.sh /dynata/oauth2-proxy/scripts/startup.sh
+# COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/configKeycloakKeys.sh /dynata/oauth2-proxy/configKeycloakKeys.sh
+# COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/kcComponentConfig.sql /dynata/oauth2-proxy/kcComponentConfig.sql
 RUN touch /dynata/oauth2-proxy/contrib/${ENVIRON}/ansible-password.txt
 # USER 2000:2000
 

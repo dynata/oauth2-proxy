@@ -208,6 +208,23 @@ func Validate(o *options.Options) error {
 	appRedirectURL, msgs = parseRequestURI(o.RawAppRedirectURL, "app-redirect", msgs)
 	o.SetDefaultAppRedirectURL(appRedirectURL)
 
+	/* KCHmacSecretKeyHex, ok := os.LookupEnv("KC_HMAC_SECRET_KEY_HEX")
+	if !ok {
+		msgs = append(msgs, "KC_HMAC_SECRET_KEY_HEX is not present")
+	} else {
+		o.KCHmacSecretKeyHex = KCHmacSecretKeyHex
+	}
+
+	KCPrivateKey, ok := os.LookupEnv("KC_PRIVATE_KEY")
+	if !ok {
+		msgs = append(msgs, "KC_PRIVATE_KEY is not present")
+	} else {
+		o.KCPrivateKey = KCPrivateKey
+	} */
+
+	o.KCHmacSecretKeyHex = os.Getenv("KC_HMAC_SECRET_KEY_HEX")
+	o.KCPrivateKey = os.Getenv("KC_PRIVATE_KEY")
+
 	msgs = append(msgs, validateUpstreams(o.UpstreamServers)...)
 	msgs = parseProviderInfo(o, msgs)
 
@@ -300,12 +317,21 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 		}
 
 		// make builder to sign both tokens
-		if len(o.KCHmacSecretHexKeyPath) != 0 && len(o.KCPrivateKeyPath) != 0 {
-			err := p.MakeTokenBuilder(o.KCHmacSecretHexKeyPath, o.KCPrivateKeyPath)
+		if len(o.KCHmacSecretKeyHex) > 0 && len(o.KCPrivateKey) > 0 {
+			err := p.MakeTokenBuilderFromKeys(o.KCHmacSecretKeyHex, o.KCPrivateKey)
 			if err != nil {
-				msgs = append(msgs, "invalid Keycloak Configuration: "+err.Error())
+				msgs = append(msgs, "invalid Keycloak Configuration from secret environments: "+err.Error())
+			}
+
+		} else {
+			if len(o.KCHmacSecretKeyHexPath) != 0 && len(o.KCPrivateKeyPath) != 0 {
+				err := p.MakeTokenBuilder(o.KCHmacSecretKeyHexPath, o.KCPrivateKeyPath)
+				if err != nil {
+					msgs = append(msgs, "invalid Keycloak Configuration from secret files: "+err.Error())
+				}
 			}
 		}
+
 	case *providers.GoogleProvider:
 		if o.Providers[0].GoogleConfig.ServiceAccountJSON != "" {
 			file, err := os.Open(o.Providers[0].GoogleConfig.ServiceAccountJSON)
