@@ -91,6 +91,12 @@ func makeLoginURL(ctx context.Context, p *ProviderData, redirectURI, state strin
 		queryParams := ctx.Value(constants.ContextOidcLoginRequestParams{}).(url.Values)
 
 		if queryParams != nil {
+			if queryParams.Get("isLibCall") != "" {
+				isLibCall := queryParams.Get("isLibCall")
+				if isLibCall == "true" {
+					redirectURI = redirectURI + "/lib"
+				}
+			}
 			if queryParams.Get("acr_values") != "" {
 				acrValues = queryParams.Get("acr_values")
 			}

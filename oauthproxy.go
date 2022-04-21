@@ -1814,14 +1814,13 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request, param
 
 	callbackRedirect := p.getOAuthRedirectURI(req)
 
+	isLibCall := false
 	if len(params) >= 1 {
-		isLibCall := params[0].(bool)
-		if isLibCall {
-			callbackRedirect = callbackRedirect + "/lib"
-		}
+		isLibCall = params[0].(bool)
 	}
 
 	query := req.URL.Query()
+	query.Add("isLibCall", strconv.FormatBool(isLibCall))
 	ctx := req.Context()
 	newCtx := context.WithValue(ctx, constants.ContextOidcLoginRequestParams{}, query)
 
