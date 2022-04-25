@@ -10,12 +10,12 @@ ARG GOPRIVATE="github.com/dynata/*,github.com/researchnow/*"
 # Copy sources
 WORKDIR $GOPATH/src/github.com/dynata/oauth2-proxy
 
+# Build Delve
+RUN go get github.com/go-delve/delve/cmd/dlv
+
 # Fetch dependencies
 COPY go.mod go.sum ./
 RUN GO111MODULE=on go mod download
-
-# Build Delve
-RUN go get github.com/go-delve/delve/cmd/dlv
 
 # Now pull in our code
 COPY . .
