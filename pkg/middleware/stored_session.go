@@ -11,7 +11,6 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	middlewareapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	sessionsapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
-	token "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/providers"
 )
@@ -164,24 +163,6 @@ func (s *StoredSessionLoader) RefreshSessionForcefully(rw http.ResponseWriter, r
 	return nil
 }
 
-type transformFunction func(session *sessionsapi.SessionState, ct token.ClaimsTransformer) error
-
-// Used when we required each http request to refresh token
-func (s *StoredSessionLoader) RefreshSessionForcefullyWithTransformer(rw http.ResponseWriter, req *http.Request, session *sessionsapi.SessionState, cf *token.ClaimsTransformer, tf transformFunction) error {
-	logger.Printf("Refreshing access token using refresh token")
-
-	refreshed, err := s.refreshSessionWithProviderAndTransformer(rw, req, session, cf, tf)
-	if err != nil {
-		return err
-	}
-
-	if !refreshed {
-		// Session wasn't refreshed, so make sure it's still valid
-		return s.validateSession(req.Context(), session)
-	}
-	return nil
-}
-
 // refreshSessionIfNeeded will attempt to refresh a session if the session
 // is older than the refresh period.
 // It is assumed that if the provider refreshes the session, the session is now
@@ -220,32 +201,6 @@ func (s *StoredSessionLoader) refreshSessionWithProvider(rw http.ResponseWriter,
 		return false, nil
 	}
 
-	// Because the session was refreshed, make sure to save it
-	_, err = s.store.Save(rw, req, session)
-	if err != nil {
-		logger.PrintAuthf(session.Email, req, logger.AuthError, "error saving session: %v", err)
-		return false, fmt.Errorf("error saving session: %v", err)
-	}
-	return true, nil
-}
-
-// refreshSessionWithProvider attempts to refresh the sessinon with the provider
-// and will save the session if it was updated.
-func (s *StoredSessionLoader) refreshSessionWithProviderAndTransformer(rw http.ResponseWriter, req *http.Request, session *sessionsapi.SessionState, cf *token.ClaimsTransformer, tf transformFunction) (bool, error) {
-	refreshed, err := s.refreshSessionWithProviderIfNeeded(req.Context(), session)
-	if err != nil {
-		return false, fmt.Errorf("error refreshing access token: %v", err)
-	}
-
-	if !refreshed {
-		return false, nil
-	}
-
-	err = tf(session, *cf)
-	if err != nil {
-		logger.PrintAuthf(session.Email, req, logger.AuthError, "error transforming session tokens: %v", err)
-		return false, fmt.Errorf("error transforming session tokens: %v", err)
-	}
 	// Because the session was refreshed, make sure to save it
 	_, err = s.store.Save(rw, req, session)
 	if err != nil {

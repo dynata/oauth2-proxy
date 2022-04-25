@@ -3,29 +3,24 @@ package providers
 import (
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
-	auth "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests"
-	pe_jwt "github.com/researchnow/pe-go-lib/jwt"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/util"
 	"golang.org/x/oauth2"
 )
 
 type KeycloakProvider struct {
 	*ProviderData
-	SkipNonce    bool
-	TokenBuilder *auth.TokenBuilder
+	SkipNonce bool
 }
 
 var _ Provider = (*KeycloakProvider)(nil)
@@ -408,6 +403,23 @@ func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Toke
 		ss.SessionState = token.Extra("session_state").(string)
 	}
 
+	tp := p.Data().TokenProcessor
+	if tp != nil {
+		var claimTransformer util.ClaimsTransformer
+		if tp.GetClaimTransformerToApply() != nil {
+			claimTransformer = tp.GetClaimTransformerToApply()
+		} else {
+			claimTransformer, err = tp.GetClaimsTransformerFromToken(ctx, ss.AccessToken)
+			if err != nil {
+				return nil, err
+			}
+		}
+		err = tp.ReSignTokensWithClaimsInSession(ss, claimTransformer)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return ss, nil
 }
 
@@ -492,73 +504,6 @@ func (p *KeycloakProvider) PerformPasswordGrant(ctx context.Context, username, p
 	}
 
 	return ss, err
-}
-
-// SetUsers configures allowed usernames
-func (p *KeycloakProvider) MakeTokenBuilder(hmacSecretKeyPath string, rsaPrivateKeyPath string) error {
-	//
-	jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder(p.JwksURL.String())
-	if err != nil {
-		//log.Fatal("Invalid JWK url provided")
-		return err
-	}
-
-	hmacSecretFileContent, err := ioutil.ReadFile(hmacSecretKeyPath)
-	if err != nil {
-		return err
-	}
-	content := string(hmacSecretFileContent)
-	contentTrimmed := strings.TrimSuffix(content, "\n")
-	hmacSecret, err := hex.DecodeString(contentTrimmed)
-	if err != nil {
-		return err
-	}
-	// hmacSecret := make([]byte, hex.DecodedLen(len(hmacSecretHex)))
-	// _, err = hex.Decode(hmacSecret, hmacSecretHex)
-	// if err != nil {
-	// 	log.Fatal("hmax secret issue")
-	// 	return nil
-	// }
-
-	signBytes, err := ioutil.ReadFile(rsaPrivateKeyPath)
-	if err != nil {
-		//log.Fatal("RSA private file not found")
-		return err
-	}
-
-	signKey, err := jwt.ParseRSAPrivateKeyFromPEM(signBytes)
-	if err != nil {
-		//log.Fatal("RSA private file parsing issue")
-		return err
-	}
-
-	p.TokenBuilder = auth.NewTokenBuilder(jwkKeyFinder, hmacSecret, signKey)
-
-	return nil
-}
-
-// SetUsers configures allowed usernames
-func (p *KeycloakProvider) MakeTokenBuilderFromKeys(hmacSecretKey string, rsaPrivateKey string) error {
-	//
-	jwkKeyFinder, err := pe_jwt.NewSimpleJWKFinder(p.JwksURL.String())
-	if err != nil {
-		return err
-	}
-
-	hmacSecret := []byte(hmacSecretKey)
-	if err != nil {
-		return err
-	}
-
-	signKey, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(rsaPrivateKey))
-	if err != nil {
-		//log.Fatal("RSA private file parsing issue")
-		return err
-	}
-
-	p.TokenBuilder = auth.NewTokenBuilder(jwkKeyFinder, hmacSecret, signKey)
-
-	return nil
 }
 
 func validateKeycloakToken(ctx context.Context, p Provider, s *sessions.SessionState, header http.Header) bool {

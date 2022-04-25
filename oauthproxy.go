@@ -20,7 +20,6 @@ import (
 	"syscall"
 	"time"
 
-	jwt_go "github.com/dgrijalva/jwt-go"
 	corpus "github.com/dynata/proto-api/go/iam/corpus/v1"
 	"github.com/justinas/alice"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
@@ -39,7 +38,6 @@ import (
 	requestutil "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests/util"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/upstream"
-	util "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/util"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/providers"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
@@ -66,12 +64,12 @@ var (
 
 // KCTokenResponse ...
 type KCTokenResponse struct {
-	TokenType        string `json:"token_type"`
-	AccessToken      string `json:"access_token"`
-	ExpiresIn        int    `json:"expires_in"`
-	RefreshToken     string `json:"refresh_token"`
-	RefreshExpiresIn int    `json:"refresh_expires_in"`
-	SessionState     string `json:"session_state"`
+	TokenType        string `json:"token_type,omitempty"`
+	AccessToken      string `json:"access_token,omitempty"`
+	ExpiresIn        int    `json:"expires_in,omitempty"`
+	RefreshToken     string `json:"refresh_token,omitempty"`
+	RefreshExpiresIn int    `json:"refresh_expires_in,omitempty"`
+	SessionState     string `json:"session_state,omitempty"`
 }
 
 // KCErrorResponse ...
@@ -150,6 +148,7 @@ type OAuthProxy struct {
 	server             proxyhttp.Server
 	reverseProxyServer *httputil.ReverseProxy
 	corpusClient       corpus.CorpusClient
+	tokenProcessor     *token.TokenProcessor
 }
 
 type authServerTokenResponse struct {
@@ -259,6 +258,27 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to corpus client %v", err)
 	}
+	corpusClient := corpus.NewCorpusClient(corpusconn)
+
+	var tokenProcessor *token.TokenProcessor
+	if len(opts.KCHmacSecretKeyHex) > 0 && len(opts.KCPrivateKey) > 0 {
+		tokenProcessor, err = token.MakeTokenProcessorFromKeys(opts.KCHmacSecretKeyHex, opts.KCPrivateKey, corpusClient, provider.Data().JwksURL)
+		if err != nil {
+			return nil, fmt.Errorf("could not create token builder from environment key variables: %v", err)
+		}
+	} else {
+		if len(opts.KCHmacSecretKeyHexPath) != 0 && len(opts.KCPrivateKeyPath) != 0 {
+			tokenProcessor, err = token.MakeTokenProcessor(opts.KCHmacSecretKeyHexPath, opts.KCPrivateKeyPath, corpusClient, provider.Data().JwksURL)
+			if err != nil {
+				return nil, fmt.Errorf("could not create token builder from key files: %v", err)
+			}
+		}
+	}
+	if tokenProcessor == nil {
+		return nil, fmt.Errorf("could not create token builder: %v", err)
+	}
+
+	provider.Data().TokenProcessor = tokenProcessor
 
 	p := &OAuthProxy{
 		CookieOptions: &opts.Cookie,
@@ -297,7 +317,8 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		preAuthChain:       preAuthChain,
 		pageWriter:         pageWriter,
 		reverseProxyServer: reverseProxyServer,
-		corpusClient:       corpus.NewCorpusClient(corpusconn),
+		corpusClient:       corpusClient,
+		tokenProcessor:     tokenProcessor,
 	}
 
 	if err := p.setupServer(opts); err != nil {
@@ -892,21 +913,6 @@ func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request,
 	p.OAuthStart(rw, req, isLibCall)
 }
 
-// primaryCompID will return the primary compnay ID from userInfo if present else return 0, error
-func primaryCompID(userInfo *corpus.UserDetailResponse) (int64, error) {
-	if userInfo == nil {
-		return 0, errors.New("userInfo is nil")
-	}
-
-	for _, c := range userInfo.Companies {
-		if c.GetIsPrimary() {
-			return c.GetId(), nil
-		}
-	}
-
-	return 0, errors.New("userInfo has no primary company")
-}
-
 // Mock Token API
 func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request) {
 	prepareNoCache(rw)
@@ -975,59 +981,9 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
-				l := log.WithField("function", "refresh-token")
+
 				// Force refresh token approach
 				originalRefreshToken := req.FormValue("refresh_token")
-				tokenString := originalRefreshToken
-				claims := jwt_go.MapClaims{}
-
-				_, err := jwt_go.ParseWithClaims(tokenString, claims, nil)
-				// if err != nil {
-				// 	logger.Printf("Error converting refreshtoken: %v", err)
-				// 	rw.WriteHeader(http.StatusUnauthorized)
-				// 	return
-				// }
-
-				var effCompID int64
-				if _, ok := claims["effective_company_id"]; ok {
-
-					effCompIDClaim := claims["effective_company_id"].(float64)
-					effCompID = int64(effCompIDClaim)
-				} else {
-					effCompID = 0
-				}
-
-				sub := claims["sub"].(string)
-				if sub == "" {
-					logger.Printf("Claim sub not found: %v", err)
-					rw.WriteHeader(http.StatusUnauthorized)
-					return
-				}
-				req1 := &corpus.SubjectID{
-					SubId: sub,
-				}
-
-				userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
-				if userInfo == nil || err != nil {
-					logger.Printf("Failed to make corpus client call: %v", err)
-					rw.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-				// get the primary company ID from userInfo
-				if effCompID == 0 {
-					effCompID, err = primaryCompID(userInfo)
-					if err != nil {
-						l.WithFields(log.Fields{"err": err}).Error("primaryCompID()")
-						rw.WriteHeader(http.StatusInternalServerError)
-						return
-					}
-				}
-				transformer, err := p.createClaimsTransformer(req.Context(), effCompID)
-				if err != nil {
-					l.WithFields(log.Fields{"err": err}).Error("createClaimsTransformer()")
-					rw.WriteHeader(http.StatusInternalServerError)
-					return
-				}
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
 				ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
@@ -1035,20 +991,12 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				session := &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
 
-				err = p.sessionLoader.RefreshSessionForcefullyWithTransformer(rw, req, session, &transformer, p.reSignTokensWithClaims)
+				err := p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 				if err != nil {
 					logger.Printf("Error refreshing session: %v", err)
 					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
-
-				// Fetching access token from session approach
-				/* session, err := p.getAuthenticatedSession(rw, req)
-				if err != nil {
-					logger.Printf("Error refreshing session: %v", err)
-					p.errorJSON(rw, http.StatusUnauthorized)
-					return
-				} */
 
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
@@ -1116,7 +1064,6 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "text/html")
-	l := log.WithField("function", "AuthenticateSilently")
 	redirectURI := req.FormValue("redirect_uri")
 	if redirectURI != "" {
 		if !p.IsValidRedirect(redirectURI) {
@@ -1160,59 +1107,15 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	// renew access token
+	// renew tokens
 
 	originalRefreshToken := session.RefreshToken
-	claims := jwt_go.MapClaims{}
-
-	_, err = jwt_go.ParseWithClaims(originalRefreshToken, claims, nil)
-	session = &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
-
-	var effCompID int64
-	if _, ok := claims["effective_company_id"]; ok {
-
-		effCompIDClaim := claims["effective_company_id"].(float64)
-		effCompID = int64(effCompIDClaim)
-	} else {
-		effCompID = 0
-	}
-
-	sub := claims["sub"].(string)
-	if sub == "" {
-		logger.Printf("Claim sub not found: %v", err)
-		rw.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	req1 := &corpus.SubjectID{
-		SubId: sub,
-	}
-
-	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
-	if userInfo == nil || err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("GetUserBySubject()")
-		return //ctx.InternalServerError(authInternalServerError())
-	}
-	// get the primary company ID from userInfo
-	if effCompID == 0 {
-
-		effCompID, err = primaryCompID(userInfo)
-	}
-	if err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("primaryCompID()")
-		rw.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	transformer, err := p.createClaimsTransformer(req.Context(), effCompID)
-	if err != nil {
-		return
-	}
-
 	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
 	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
 	req = req.Clone(ctx)
 
-	err = p.sessionLoader.RefreshSessionForcefullyWithTransformer(rw, req, session, &transformer, p.reSignTokensWithClaims)
+	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 	if err != nil {
 		logger.Printf("Error refreshing user session silently: %v", err)
 
@@ -2355,50 +2258,6 @@ func (p *OAuthProxy) getClientIdFromSecureHashedClient(hashedClientId string, re
 
 }
 
-// createClaimsTransformer creates a new ClaimsTransformer for the passed company id. Claims will be filtered
-// based on data from corpus.
-func (p *OAuthProxy) createClaimsTransformer(
-	ctx context.Context,
-	compID int64,
-) (token.ClaimsTransformer, error) {
-	l := log.WithField("function", "createClaimsTransformer")
-	clientRolesResp, err := p.corpusClient.ListProductLineClientRolesByCompanyID(
-		ctx,
-		&corpus.RequestID{Id: compID},
-	)
-	if err != nil {
-		l.WithField("err", err).Error()
-		return nil, err
-	}
-
-	transformer, err := util.ClaimsTransformer(compID, clientRolesResp.Clients)
-	if err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("claimsTransformer()")
-		return nil, err
-	}
-	return transformer, nil
-}
-
-func (p *OAuthProxy) reSignTokensWithClaims(session *sessionsapi.SessionState, ct token.ClaimsTransformer) error {
-	// re-sign the access and refresh tokens
-
-	switch provider := p.provider.(type) {
-	case *providers.KeycloakProvider:
-		{
-
-			newAccessTkn, newRefreshTkn, err := provider.TokenBuilder.ReSigningTokenWithClaims(session.AccessToken, session.RefreshToken, ct)
-			if err != nil {
-				return err
-			}
-			// // assign the re-signed tokens respectively
-			session.AccessToken = newAccessTkn
-			session.RefreshToken = newRefreshTkn
-		}
-	}
-
-	return nil
-}
-
 // switch to user specified company after validations
 func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
@@ -2408,38 +2267,27 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	session, sessionErr := p.getAuthenticatedSession(rw, req)
 	if sessionErr != nil || session == nil {
-		//
-		rw.Write([]byte(fmt.Sprintf("Not authorized")))
+		rw.Write([]byte("not authorized"))
 		return
 	}
+
 	tokenString := session.AccessToken
-	claims := jwt_go.MapClaims{}
-
-	_, err := jwt_go.ParseWithClaims(tokenString, claims, nil)
-
-	sub := claims["sub"].(string)
-	// for key, val := range claims {
-	// 	if key == "sub" {
-	// 		sub = val.(string)
-	// 	}
-	// }
-
-	//sub, err := pejwt.Subject(context.Context)
-	if sub == "" {
-		l.WithField("err", err).Error()
-		return //ctx.InternalServerError(authInternalServerError())
+	claims, err := p.tokenProcessor.GetClaimsFromAccessToken(tokenString)
+	if err != nil {
+		logger.Errorf("Error fetching claims from token: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	req1 := &corpus.SubjectID{
-		SubId: sub,
-	}
+	subjectReq := p.tokenProcessor.GetSubject(claims)
 
-	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), req1)
+	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), subjectReq)
 	if userInfo == nil || err != nil {
 		logger.Printf("Failed to make corpus client call: %v", err)
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
 	//check if the compID to switch belongs to user or not
 	compIDToSwitch, _ := strconv.ParseInt(CompanyID, 10, 64)
 	canMakeValidSwitch := false
@@ -2449,24 +2297,21 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 			break
 		}
 	}
+
 	// if compID does not belong to user then return error
 	if !canMakeValidSwitch {
 		l.WithFields(log.Fields{"compIDToSwitch": compIDToSwitch}).Error("not a valid company to switch")
-		return //ctx.Forbidden(authCompSwitchError())
+		rw.WriteHeader(http.StatusForbidden)
+		return
 	}
 
-	// _, err = p.provider.RefreshSessionIfNeeded(req.Context(), session)
-	// if err != nil {
-	// 	l.WithFields(log.Fields{"err": err}).Error("refresh session")
-	// 	return
-	// }
-
-	transformer, err := p.createClaimsTransformer(req.Context(), compIDToSwitch)
+	transformer, err := p.tokenProcessor.CreateClaimsTransformer(req.Context(), compIDToSwitch)
 	if err != nil {
-		l.WithFields(log.Fields{"err": err}).Error("createClaimsTransformer()")
+		logger.Errorf("CreateClaimsTransformer() failed: %v", err)
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	p.tokenProcessor.SetClaimTransformerToApply(transformer)
 
 	originalRefreshToken := session.RefreshToken
 
@@ -2475,18 +2320,20 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	req = req.Clone(ctx)
 
-	err = p.sessionLoader.RefreshSessionForcefullyWithTransformer(rw, req, session, &transformer, p.reSignTokensWithClaims)
+	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 	if err != nil {
 		logger.Printf("Error refreshing session: %v", err)
 		rw.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 	rw.Header().Set("Content-Type", "application/json")
-	res := TokenMedia{AccessToken: session.AccessToken,
-		ExpiresIn:        int(session.AccessExpiresIn),
-		RefreshToken:     session.RefreshToken,
-		RefreshExpiresIn: int(session.RefreshExpiresIn),
+	res := &KCTokenResponse{
+		AccessToken: session.AccessToken,
+		ExpiresIn:   int(session.AccessExpiresIn),
+		// RefreshToken:     session.RefreshToken,
+		// RefreshExpiresIn: int(session.RefreshExpiresIn),
 	}
+
 	json.NewEncoder(rw).Encode(res)
 }
 

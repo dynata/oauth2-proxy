@@ -11,6 +11,7 @@ import (
 
 	"github.com/coreos/go-oidc"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
+	token "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"golang.org/x/oauth2"
 )
@@ -56,6 +57,7 @@ type ProviderData struct {
 
 	Clients          map[string][]map[string]string   // Multiple clients related data field
 	ClientsVerifiers map[string]*oidc.IDTokenVerifier //Multiple clients verifier
+	TokenProcessor   *token.TokenProcessor
 }
 
 // Data returns the ProviderData

@@ -6,8 +6,9 @@ import (
 	"io/ioutil"
 
 	corpus "github.com/dynata/proto-api/go/iam/corpus/v1"
-	token "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 )
+
+type ClaimsTransformer func(map[string]interface{}) (map[string]interface{}, error)
 
 func GetCertPool(paths []string) (*x509.CertPool, error) {
 	if len(paths) == 0 {
@@ -27,7 +28,7 @@ func GetCertPool(paths []string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-func ClaimsTransformer(effCompID int64, corpusClientRoles map[string]*corpus.ClientRoles) (token.ClaimsTransformer, error) {
+func CreateClaimsTransformer(effCompID int64, corpusClientRoles map[string]*corpus.ClientRoles) (ClaimsTransformer, error) {
 
 	const (
 		rolesStr          = "roles"
@@ -35,7 +36,7 @@ func ClaimsTransformer(effCompID int64, corpusClientRoles map[string]*corpus.Cli
 		effCompanyIdStr   = "effective_company_id"
 	)
 	return func(parsedClaims map[string]interface{}) (map[string]interface{}, error) {
-		// start with new claims which override/set effective company id
+		// start with new claims which override/set custom claims
 		newClaims := map[string]interface{}{effCompanyIdStr: effCompID}
 		if len(parsedClaims) == 0 {
 			return newClaims, nil

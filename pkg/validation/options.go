@@ -316,7 +316,7 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 			p.SetAllowedGroups(o.Providers[0].KeycloakConfig.Groups)
 		}
 
-		// make builder to sign both tokens
+		/* // make builder to sign both tokens
 		if len(o.KCHmacSecretKeyHex) > 0 && len(o.KCPrivateKey) > 0 {
 			err := p.MakeTokenBuilderFromKeys(o.KCHmacSecretKeyHex, o.KCPrivateKey)
 			if err != nil {
@@ -330,7 +330,7 @@ func parseProviderInfo(o *options.Options, msgs []string) []string {
 					msgs = append(msgs, "invalid Keycloak Configuration from secret files: "+err.Error())
 				}
 			}
-		}
+		} */
 
 	case *providers.GoogleProvider:
 		if o.Providers[0].GoogleConfig.ServiceAccountJSON != "" {
