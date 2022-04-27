@@ -2278,8 +2278,6 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	CompanyID := req.FormValue("CompanyID")
 
-	l := log.WithField("function", "SwitchCompany")
-
 	session, sessionErr := p.getAuthenticatedSession(rw, req)
 	if sessionErr != nil || session == nil {
 		rw.Write([]byte("not authorized"))
@@ -2298,7 +2296,7 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), subjectReq)
 	if userInfo == nil || err != nil {
-		logger.Printf("Failed to make corpus client call: %v", err)
+		logger.Printf("Failed to create subject from claims: %v", err)
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -2315,7 +2313,7 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	// if compID does not belong to user then return error
 	if !canMakeValidSwitch {
-		l.WithFields(log.Fields{"compIDToSwitch": compIDToSwitch}).Error("not a valid company to switch")
+		logger.Printf("not a valid company to switch : %v", compIDToSwitch)
 		rw.WriteHeader(http.StatusForbidden)
 		return
 	}

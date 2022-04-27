@@ -391,7 +391,7 @@ func (t *TokenProcessor) GetClaimsTransformerFromToken(ctx context.Context, toke
 	}
 	userInfo, err := t.corpusClient.GetUserBySubject(ctx, userInfoRequest)
 	if userInfo == nil || err != nil {
-		l.Printf("Failed to make corpus client call: %v", err)
+		l.Printf("Failed to fetch user by subject from corpus: %v", err)
 		return nil, err
 	}
 	primaryCompID, err := t.GetPrimaryCompID(userInfo)
