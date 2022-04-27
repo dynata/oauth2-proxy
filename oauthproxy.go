@@ -1055,6 +1055,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
+					IDToken:               session.IDToken,
 					RefreshToken:          session.RefreshToken,
 					RefreshTokenExpiresIn: session.RefreshExpiresIn,
 					AccessToken:           session.AccessToken,
