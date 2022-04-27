@@ -62,22 +62,6 @@ var (
 	invalidRedirectRegex = regexp.MustCompile(`[/\\](?:[\s\v]*|\.{1,2})[/\\]`)
 )
 
-// KCTokenResponse ...
-type KCTokenResponse struct {
-	TokenType        string `json:"token_type,omitempty"`
-	AccessToken      string `json:"access_token,omitempty"`
-	ExpiresIn        int    `json:"expires_in,omitempty"`
-	RefreshToken     string `json:"refresh_token,omitempty"`
-	RefreshExpiresIn int    `json:"refresh_expires_in,omitempty"`
-	SessionState     string `json:"session_state,omitempty"`
-}
-
-// KCErrorResponse ...
-type KCErrorResponse struct {
-	Error            string `json:"error"`
-	ErrorDescription string `json:"error_description"`
-}
-
 // SwitchCompanyAuthContext provides the auth switchCompany action context.
 type SwitchCompanyAuthContext struct {
 	context.Context
@@ -90,16 +74,6 @@ type SwitchCompanyPayload struct {
 	ClientSecret *string
 	// Company ID
 	CompanyID float64
-}
-type TokenMedia struct {
-	// Access token
-	AccessToken string `form:"accessToken" json:"accessToken" yaml:"accessToken" xml:"accessToken"`
-	// Access token expires in seconds
-	ExpiresIn int `form:"expiresIn" json:"expiresIn" yaml:"expiresIn" xml:"expiresIn"`
-	// Refresh token expires in seconds
-	RefreshExpiresIn int `form:"refreshExpiresIn" json:"refreshExpiresIn" yaml:"refreshExpiresIn" xml:"refreshExpiresIn"`
-	// Refresh token
-	RefreshToken string `form:"refreshToken" json:"refreshToken" yaml:"refreshToken" xml:"refreshToken"`
 }
 
 // allowedRoute manages method + path based allowlists
@@ -152,14 +126,14 @@ type OAuthProxy struct {
 }
 
 type authServerTokenResponse struct {
-	TokenType             string  `json:"token_type"`
-	IDToken               string  `json:"id_token"`
-	RefreshToken          string  `json:"refresh_token"`
-	RefreshTokenExpiresIn float64 `json:"refresh_expires_in"`
-	AccessToken           string  `json:"access_token"`
-	ExpiresIn             float64 `json:"expires_in"`
-	Scope                 string  `json:"scope"`
-	SessionState          string  `json:"session_state"`
+	TokenType             string  `json:"token_type,omitempty"`
+	IDToken               string  `json:"id_token,omitempty"`
+	RefreshToken          string  `json:"refresh_token,omitempty"`
+	RefreshTokenExpiresIn float64 `json:"refresh_expires_in,omitempty"`
+	AccessToken           string  `json:"access_token,omitempty"`
+	ExpiresIn             float64 `json:"expires_in,omitempty"`
+	Scope                 string  `json:"scope,omitempty"`
+	SessionState          string  `json:"session_state,omitempty"`
 }
 
 // MakeCorpusClient dials to corpus and returns the client.
@@ -2341,14 +2315,19 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	rw.Header().Set("Content-Type", "application/json")
-	res := &KCTokenResponse{
-		AccessToken: session.AccessToken,
-		ExpiresIn:   int(session.AccessExpiresIn),
-		// RefreshToken:     session.RefreshToken,
-		// RefreshExpiresIn: int(session.RefreshExpiresIn),
+
+	tokenResponse := &authServerTokenResponse{
+		TokenType: session.TokenType,
+		IDToken:   session.IDToken,
+		// RefreshToken:          session.RefreshToken,
+		// RefreshTokenExpiresIn: session.RefreshExpiresIn,
+		AccessToken:  session.AccessToken,
+		ExpiresIn:    session.AccessExpiresIn,
+		Scope:        session.Scope,
+		SessionState: session.SessionState,
 	}
 
-	json.NewEncoder(rw).Encode(res)
+	json.NewEncoder(rw).Encode(tokenResponse)
 }
 
 // authOnlyAuthorize handles special authorization logic that is only done
