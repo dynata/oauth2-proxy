@@ -20,6 +20,9 @@ RUN GO111MODULE=on go mod download
 # Now pull in our code
 COPY . .
 
+#Create config file
+RUN cp /oauth2-proxy.cfg ./config.cfg
+
 ARG VERSION
 
 # Build binary and make sure there is at least an empty key file.
@@ -38,7 +41,7 @@ COPY --from=builder /go/bin/dlv /bin/dlv
 COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/oauth2-proxy-debug /bin/oauth2-proxy
 COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/jwt_signing_key.pem /etc/ssl/private/jwt_signing_key.pem
 COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/contrib /dynata/oauth2-proxy/contrib
-COPY --from=builder /oauth2-proxy.cfg /oauth2-proxy.cfg
+COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/config.cfg /oauth2-proxy.cfg
 COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/scripts/startup.sh /dynata/oauth2-proxy/scripts/startup.sh
 # COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/configKeycloakKeys.sh /dynata/oauth2-proxy/configKeycloakKeys.sh
 # COPY --from=builder /go/src/github.com/dynata/oauth2-proxy/kcComponentConfig.sql /dynata/oauth2-proxy/kcComponentConfig.sql
