@@ -39,9 +39,9 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/upstream"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/providers"
+	pelib "github.com/researchnow/pe-go-lib"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -162,6 +162,24 @@ type authServerTokenResponse struct {
 	SessionState          string  `json:"session_state"`
 }
 
+// MakeCorpusClient dials to corpus and returns the client.
+func MakeCorpusClient(corpusServerUrl string) (corpus.CorpusClient, error) {
+
+	if strings.Trim(corpusServerUrl, " ") == "" {
+		return nil, errors.New("corpus address is not configured")
+	}
+	// ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	// conn, err := grpc.DialContext(ctx, opts.CorpusServerAddress, grpc.WithInsecure(), grpc.WithBlock())
+	// OR
+	// conn, err := grpc.Dial(corpusServerAddress, grpc.WithInsecure())
+	// OR
+	conn, err := pelib.GRPCDial(corpusServerUrl, log.WithField("function", "corpusClient"))
+	if err != nil {
+		return nil, err
+	}
+	return corpus.NewCorpusClient(conn), nil
+}
+
 // NewOAuthProxy creates a new instance of OAuthProxy from the options provided
 func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthProxy, error) {
 
@@ -252,13 +270,10 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	reverseProxyServerURLString := reverseProxyServerURL.String()
 	reverseProxyServer := NewReverseProxy(reverseProxyServerURLString)
 
-	// ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
-	// corpusconn, err := grpc.DialContext(ctx, opts.CorpusServerAddress, grpc.WithInsecure(), grpc.WithBlock())
-	corpusconn, err := grpc.Dial(opts.CorpusServerAddress, grpc.WithInsecure())
+	corpusClient, err := MakeCorpusClient(opts.CorpusServerAddress)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to corpus client %v", err)
 	}
-	corpusClient := corpus.NewCorpusClient(corpusconn)
 
 	var tokenProcessor *token.TokenProcessor
 	if len(opts.KCHmacSecretKeyHex) > 0 && len(opts.KCPrivateKey) > 0 {
