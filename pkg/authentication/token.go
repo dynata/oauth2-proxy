@@ -201,7 +201,7 @@ func (t *TokenProcessor) GetPrimaryCompID(userInfo *corpus.UserDetailResponse) (
 		}
 	}
 
-	return 0, errors.New("userInfo has no primary company")
+	return 0, errors.New("user has no primary company")
 }
 
 func (t *TokenProcessor) GetSubject(claims jwtgo.MapClaims) *corpus.SubjectID {
@@ -396,8 +396,8 @@ func (t *TokenProcessor) GetClaimsTransformerFromToken(ctx context.Context, toke
 	}
 	primaryCompID, err := t.GetPrimaryCompID(userInfo)
 	if err != nil {
-		l.Printf("Failed to get primary company: %v", err)
-		return nil, err
+		l.Printf("Error getting primary company: %v", err)
+		// return nil, err //since some user might not have any company set
 	}
 
 	effCompID := t.GetEffectiveCompanyIDFromClaims(claims, primaryCompID)
