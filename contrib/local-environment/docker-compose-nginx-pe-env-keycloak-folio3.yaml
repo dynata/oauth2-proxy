@@ -35,11 +35,11 @@ services:
   oauth2-proxy:
     container_name: oauth2-proxy
     image: quay.io/oauth2-proxy/oauth2-proxy:debug
-    # security_opt:
-    #   - seccomp:unconfined
-    #   - apparmor=unconfined
-    # cap_add: 
-    #   - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+      - apparmor=unconfined
+    cap_add: 
+      - SYS_PTRACE
     # entrypoint: ['/bin/dlv', '--listen=:41800', '--headless=true', '--accept-multiclient', '--api-version=2', 'exec', '/bin/oauth2-proxy', '--continue', '--']
     # command: --config /oauth2-proxy.cfg
     hostname: oauth2-proxy
