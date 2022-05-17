@@ -12,9 +12,9 @@ project_container_port: 4180
 
 ingress_type: internet-facing
 
-k8s_secret_name: insightsplatform-oauth2-proxy
-
 secrets:
   ANSIBLE_SECRET: ansible_secret
+  KC_HMAC_SECRET_KEY_HEX: "KC_HMAC_SECRET_KEY_HEX"
+  KC_PRIVATE_KEY: "KC_PRIVATE_KEY"
 
 envs:

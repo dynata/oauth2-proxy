@@ -15,12 +15,12 @@ import (
 	"os/signal"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
+	corpus "github.com/dynata/proto-api/go/iam/corpus/v1"
 	"github.com/justinas/alice"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/constants"
 	ipapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/ip"
@@ -28,10 +28,10 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
 	sessionsapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/app/pagewriter"
+	token "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/authentication/basic"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/cookies"
 	proxyhttp "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/http"
-
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/ip"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/middleware"
@@ -39,6 +39,9 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/upstream"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/providers"
+	pelib "github.com/researchnow/pe-go-lib"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -58,6 +61,20 @@ var (
 	// Matches //, /\ and both of these with whitespace in between (eg / / or / \).
 	invalidRedirectRegex = regexp.MustCompile(`[/\\](?:[\s\v]*|\.{1,2})[/\\]`)
 )
+
+// SwitchCompanyAuthContext provides the auth switchCompany action context.
+type SwitchCompanyAuthContext struct {
+	context.Context
+	Payload *SwitchCompanyPayload
+}
+
+// SwitchCompanyPayload user type.
+type SwitchCompanyPayload struct {
+	// Client Secret
+	ClientSecret *string
+	// Company ID
+	CompanyID float64
+}
 
 // allowedRoute manages method + path based allowlists
 type allowedRoute struct {
@@ -80,6 +97,7 @@ type OAuthProxy struct {
 	UserInfoPath         string
 	CheckSessionPath     string
 	SilentAuthPath       string
+	SwitchCompanyPath    string
 
 	allowedRoutes         []allowedRoute
 	redirectURL           *url.URL // the url to receive requests at
@@ -103,21 +121,42 @@ type OAuthProxy struct {
 	pageWriter         pagewriter.Writer
 	server             proxyhttp.Server
 	reverseProxyServer *httputil.ReverseProxy
+	corpusClient       corpus.CorpusClient
+	tokenProcessor     *token.TokenProcessor
 }
 
 type authServerTokenResponse struct {
-	TokenType             string  `json:"token_type"`
-	IDToken               string  `json:"id_token"`
-	RefreshToken          string  `json:"refresh_token"`
-	RefreshTokenExpiresIn float64 `json:"refresh_expires_in"`
-	AccessToken           string  `json:"access_token"`
-	ExpiresIn             float64 `json:"expires_in"`
-	Scope                 string  `json:"scope"`
-	SessionState          string  `json:"session_state"`
+	TokenType             string  `json:"token_type,omitempty"`
+	IDToken               string  `json:"id_token,omitempty"`
+	RefreshToken          string  `json:"refresh_token,omitempty"`
+	RefreshTokenExpiresIn float64 `json:"refresh_expires_in,omitempty"`
+	AccessToken           string  `json:"access_token,omitempty"`
+	ExpiresIn             float64 `json:"expires_in,omitempty"`
+	Scope                 string  `json:"scope,omitempty"`
+	SessionState          string  `json:"session_state,omitempty"`
+}
+
+// MakeCorpusClient dials to corpus and returns the client.
+func MakeCorpusClient(corpusServerUrl string) (corpus.CorpusClient, error) {
+
+	if strings.Trim(corpusServerUrl, " ") == "" {
+		return nil, errors.New("corpus address is not configured")
+	}
+	// ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	// conn, err := grpc.DialContext(ctx, opts.CorpusServerAddress, grpc.WithInsecure(), grpc.WithBlock())
+	// OR
+	// conn, err := grpc.Dial(corpusServerAddress, grpc.WithInsecure())
+	// OR
+	conn, err := pelib.GRPCDial(corpusServerUrl, log.WithField("function", "corpusClient"))
+	if err != nil {
+		return nil, err
+	}
+	return corpus.NewCorpusClient(conn), nil
 }
 
 // NewOAuthProxy creates a new instance of OAuthProxy from the options provided
 func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthProxy, error) {
+
 	sessionStore, err := sessions.NewSessionStore(&opts.Session, &opts.Cookie)
 	if err != nil {
 		return nil, fmt.Errorf("error initialising session store: %v", err)
@@ -205,6 +244,31 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	reverseProxyServerURLString := reverseProxyServerURL.String()
 	reverseProxyServer := NewReverseProxy(reverseProxyServerURLString)
 
+	corpusClient, err := MakeCorpusClient(opts.CorpusServerAddress)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to corpus client %v", err)
+	}
+
+	var tokenProcessor *token.TokenProcessor
+	if len(opts.KCHmacSecretKeyHex) > 0 && len(opts.KCPrivateKey) > 0 {
+		tokenProcessor, err = token.MakeTokenProcessorFromKeys(opts.KCHmacSecretKeyHex, opts.KCPrivateKey, corpusClient, provider.Data().JwksURL)
+		if err != nil {
+			return nil, fmt.Errorf("could not create token builder from environment key variables: %v", err)
+		}
+	} else {
+		if len(opts.KCHmacSecretKeyHexPath) != 0 && len(opts.KCPrivateKeyPath) != 0 {
+			tokenProcessor, err = token.MakeTokenProcessor(opts.KCHmacSecretKeyHexPath, opts.KCPrivateKeyPath, corpusClient, provider.Data().JwksURL)
+			if err != nil {
+				return nil, fmt.Errorf("could not create token builder from key files: %v", err)
+			}
+		}
+	}
+	if tokenProcessor == nil {
+		return nil, fmt.Errorf("could not create token builder: %v", err)
+	}
+
+	provider.Data().TokenProcessor = tokenProcessor
+
 	p := &OAuthProxy{
 		CookieOptions: &opts.Cookie,
 		Validator:     validator,
@@ -219,6 +283,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		UserInfoPath:         fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
 		CheckSessionPath:     fmt.Sprintf("%s/lib/check_session", opts.ProxyPrefix),
 		SilentAuthPath:       fmt.Sprintf("%s/lib/silent", opts.ProxyPrefix),
+		SwitchCompanyPath:    fmt.Sprintf("%s/switchcompany", opts.ProxyPrefix),
 
 		ProxyPrefix:           opts.ProxyPrefix,
 		provider:              provider,
@@ -241,6 +306,8 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		preAuthChain:       preAuthChain,
 		pageWriter:         pageWriter,
 		reverseProxyServer: reverseProxyServer,
+		corpusClient:       corpusClient,
+		tokenProcessor:     tokenProcessor,
 	}
 
 	if err := p.setupServer(opts); err != nil {
@@ -659,19 +726,19 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 				SessionState          string   `json:"session_state,omitempty"`
 				MessageType           string   `json:"message_type,omitempty"`
 			}{
-				User:                  session.User,
-				Email:                 session.Email,
-				Groups:                session.Groups,
-				PreferredUsername:     session.PreferredUsername,
-				TokenType:             session.TokenType,
-				IDToken:               session.IDToken,
-				RefreshToken:          session.RefreshToken,
-				RefreshTokenExpiresIn: session.RefreshExpiresIn,
-				AccessToken:           session.AccessToken,
-				ExpiresIn:             session.AccessExpiresIn,
-				Scope:                 session.Scope,
-				SessionState:          session.SessionState,
-				MessageType:           constants.AuthMessageType,
+				User:              session.User,
+				Email:             session.Email,
+				Groups:            session.Groups,
+				PreferredUsername: session.PreferredUsername,
+				TokenType:         session.TokenType,
+				IDToken:           session.IDToken,
+				/* RefreshToken:          session.RefreshToken,
+				RefreshTokenExpiresIn: session.RefreshExpiresIn, */
+				AccessToken:  session.AccessToken,
+				ExpiresIn:    session.AccessExpiresIn,
+				Scope:        session.Scope,
+				SessionState: session.SessionState,
+				MessageType:  constants.AuthMessageType,
 			}
 
 			rw.Header().Set("Content-Type", "text/html;")
@@ -707,6 +774,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.CheckSession(rw, req)
 	case !p.isOauth2ProxySupportedRequest(req):
 		reverseProxyAddModifiers(p.reverseProxyServer, reverseProxyResponseModifierFunctions, rw).ServeHTTP(rw, req)
+	case path == p.SwitchCompanyPath: // Switch Company Endpoint
+		p.SwitchCompany(rw, req)
 	default:
 		p.Proxy(rw, req)
 	}
@@ -904,7 +973,6 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				// Force refresh token approach
 				originalRefreshToken := req.FormValue("refresh_token")
-
 				ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
 				ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
@@ -918,14 +986,6 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 					rw.WriteHeader(http.StatusUnauthorized)
 					return
 				}
-
-				// Fetching access token from session approach
-				/* session, err := p.getAuthenticatedSession(rw, req)
-				if err != nil {
-					logger.Printf("Error refreshing session: %v", err)
-					p.errorJSON(rw, http.StatusUnauthorized)
-					return
-				} */
 
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
@@ -969,6 +1029,7 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
+					IDToken:               session.IDToken,
 					RefreshToken:          session.RefreshToken,
 					RefreshTokenExpiresIn: session.RefreshExpiresIn,
 					AccessToken:           session.AccessToken,
@@ -993,7 +1054,6 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 
 func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "text/html")
-
 	redirectURI := req.FormValue("redirect_uri")
 	if redirectURI != "" {
 		if !p.IsValidRedirect(redirectURI) {
@@ -1037,16 +1097,13 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	// renew access token
+	// renew tokens
 
 	originalRefreshToken := session.RefreshToken
-
 	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
-	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, session.RefreshToken)
+	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
 
 	req = req.Clone(ctx)
-
-	session = &sessionsapi.SessionState{RefreshToken: originalRefreshToken}
 
 	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
 	if err != nil {
@@ -1124,7 +1181,6 @@ func (p *OAuthProxy) AuthenticateSilently(rw http.ResponseWriter, req *http.Requ
 	iframeResponse := fmt.Sprintf("<script>window.parent.postMessage(JSON.stringify(%s),'%s');</script>", jsonBuilder.String(), appOriginURL.String())
 	rw.Write([]byte(iframeResponse))
 }
-
 func (p *OAuthProxy) CheckSession(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "text/html")
 
@@ -1308,6 +1364,7 @@ func (p *OAuthProxy) SignIn(rw http.ResponseWriter, req *http.Request) {
 func (p *OAuthProxy) UserInfo(rw http.ResponseWriter, req *http.Request) {
 
 	session, err := p.getAuthenticatedSession(rw, req)
+
 	if err != nil {
 		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
@@ -1471,6 +1528,7 @@ func (p *OAuthProxy) MockWellKnownUriRequest(rw http.ResponseWriter, req *http.R
 	prepareNoCache(rw)
 
 	c := http.Client{}
+
 	resp, err := c.Get(p.provider.Data().IssuerURL.String() + "/.well-known/openid-configuration")
 
 	if err != nil {
@@ -1649,14 +1707,13 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request, param
 
 	callbackRedirect := p.getOAuthRedirectURI(req)
 
+	isLibCall := false
 	if len(params) >= 1 {
-		isLibCall := params[0].(bool)
-		if isLibCall {
-			callbackRedirect = callbackRedirect + "/lib"
-		}
+		isLibCall = params[0].(bool)
 	}
 
 	query := req.URL.Query()
+	query.Add("isLibCall", strconv.FormatBool(isLibCall))
 	ctx := req.Context()
 	newCtx := context.WithValue(ctx, constants.ContextOidcLoginRequestParams{}, query)
 
@@ -2189,6 +2246,88 @@ func (p *OAuthProxy) getClientIdFromSecureHashedClient(hashedClientId string, re
 	}
 	return "", errors.New("provided client ID did not match with any configured client IDs")
 
+}
+
+// switch to user specified company after validations
+func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
+
+	CompanyID := req.FormValue("CompanyID")
+
+	session, sessionErr := p.getAuthenticatedSession(rw, req)
+	if sessionErr != nil || session == nil {
+		rw.Write([]byte("not authorized"))
+		return
+	}
+
+	tokenString := session.AccessToken
+	claims, err := p.tokenProcessor.GetClaimsFromAccessToken(tokenString)
+	if err != nil {
+		logger.Errorf("Error fetching claims from token: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	subjectReq := p.tokenProcessor.GetSubject(claims)
+
+	userInfo, err := p.corpusClient.GetUserBySubject(req.Context(), subjectReq)
+	if userInfo == nil || err != nil {
+		logger.Printf("Failed to create subject from claims: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	//check if the compID to switch belongs to user or not
+	compIDToSwitch, _ := strconv.ParseInt(CompanyID, 10, 64)
+	canMakeValidSwitch := false
+	for _, c := range userInfo.Companies {
+		if c.GetId() == compIDToSwitch {
+			canMakeValidSwitch = true
+			break
+		}
+	}
+
+	// if compID does not belong to user then return error
+	if !canMakeValidSwitch {
+		logger.Printf("not a valid company to switch : %v", compIDToSwitch)
+		rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	transformer, err := p.tokenProcessor.CreateClaimsTransformer(req.Context(), compIDToSwitch)
+	if err != nil {
+		logger.Errorf("CreateClaimsTransformer() failed: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	p.tokenProcessor.SetClaimTransformerToApply(transformer)
+
+	originalRefreshToken := session.RefreshToken
+
+	ctx := context.WithValue(req.Context(), constants.ContextSkipRefreshInterval{}, true)
+	ctx = context.WithValue(ctx, constants.ContextOriginalRefreshToken{}, originalRefreshToken)
+
+	req = req.Clone(ctx)
+
+	err = p.sessionLoader.RefreshSessionForcefully(rw, req, session)
+	if err != nil {
+		logger.Printf("Error refreshing session: %v", err)
+		rw.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+
+	tokenResponse := &authServerTokenResponse{
+		TokenType: session.TokenType,
+		IDToken:   session.IDToken,
+		// RefreshToken:          session.RefreshToken,
+		// RefreshTokenExpiresIn: session.RefreshExpiresIn,
+		AccessToken:  session.AccessToken,
+		ExpiresIn:    session.AccessExpiresIn,
+		Scope:        session.Scope,
+		SessionState: session.SessionState,
+	}
+
+	json.NewEncoder(rw).Encode(tokenResponse)
 }
 
 // authOnlyAuthorize handles special authorization logic that is only done

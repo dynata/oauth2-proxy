@@ -10,6 +10,8 @@
             "request": "launch",
             "mode": "debug",
             "program": "${workspaceFolder}",
+            // "preLaunchTask": "configLocalKeycloakKeys",
+            "console": "integratedTerminal",
             "args": ["--config", "contrib/local-environment/oauth2-proxy-pe-env-localhost.cfg"],
         },
         {
@@ -17,6 +19,7 @@
             "type": "go",
             "request": "launch",
             "mode": "exec",
+            // "preLaunchTask": "configLocalKeycloakKeys",
             "program": "${workspaceFolder}",
             "args": ["--config", "contrib/local-environment/oauth2-proxy-pe-env-localhost.cfg"]
         },
@@ -26,7 +29,7 @@
             "request": "attach",
             "mode": "remote",
             "port": 41800,
-            "host": "127.0.0.1",
+            "host": "10.164.0.108",
             "apiVersion": 2,
             "showLog": true
         }

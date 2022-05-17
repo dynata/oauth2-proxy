@@ -1,0 +1,5 @@
+export ENVIRONMENT=local-environment
+export KC_HMAC_SECRET_KEY_HEX="2........................3"
+export KC_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
+...........
+-----END RSA PRIVATE KEY-----"

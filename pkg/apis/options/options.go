@@ -76,6 +76,14 @@ type Options struct {
 	jwtBearerVerifiers    []*oidc.IDTokenVerifier
 	realClientIPParser    ipapi.RealClientIPParser
 	allClientIDs          []string
+
+	CorpusServerAddress string `flag:"corpus-server-address" cfg:"corpus_server_address"`
+
+	KCHmacSecretKeyHex string `cfg:",internal" env:"KC_HMAC_SECRET_KEY_HEX"`
+	KCPrivateKey       string `cfg:",internal" env:"KC_PRIVATE_KEY"`
+
+	KCHmacSecretKeyHexPath string `flag:"keycloak-hmac-secret-hex-key-path" cfg:"keycloak_hmac_secret_hex_key_path"`
+	KCPrivateKeyPath       string `flag:"keycloak-private-key-path" cfg:"keycloak_private_key_path"`
 }
 
 // Options for Getting internal values
@@ -161,6 +169,11 @@ func NewFlagSet() *pflag.FlagSet {
 
 	flagSet.String("signature-key", "", "GAP-Signature request signature key (algorithm:secretkey)")
 	flagSet.Bool("gcp-healthchecks", false, "Enable GCP/GKE healthcheck endpoints")
+
+	flagSet.String("corpus-server-address", "", "Corpus server address")
+
+	flagSet.String("keycloak-hmac-secret-hex-key-path", "./kc.hmac.secret.hex", "secret hex key file path to resign tokens")
+	flagSet.String("keycloak-private-key-path", "./kc.local.private.pem", "private key file path to resign tokens")
 
 	flagSet.AddFlagSet(cookieFlagSet())
 	flagSet.AddFlagSet(loggingFlagSet())
