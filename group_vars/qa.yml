@@ -1,2 +1,5 @@
+k8s_secret_name: insightsplatform-oauth2-proxy-qa
+
 envs:
   APP_ENV: qa
+  ENVIRONMENT: qa

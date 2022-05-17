@@ -1,2 +1,5 @@
+k8s_secret_name: insightsplatform-oauth2-proxy-production
+
 envs:
   APP_ENV: production
+  ENVIRONMENT: production

@@ -14,6 +14,7 @@ import (
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/sessions"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/logger"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests"
+	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/util"
 	"golang.org/x/oauth2"
 )
 
@@ -64,6 +65,7 @@ func NewKeycloakProvider(p *ProviderData) *KeycloakProvider {
 		Host:   p.IssuerURL.Host,
 		Path:   p.IssuerURL.Path + "/account/password",
 	}
+
 	return &KeycloakProvider{
 		ProviderData: p,
 		SkipNonce:    true,
@@ -210,8 +212,8 @@ func (p *KeycloakProvider) Redeem(ctx context.Context, redirectURL, code string)
 
 // ValidateSession checks that the session's IDToken is still valid
 func (p *KeycloakProvider) ValidateSession(ctx context.Context, s *sessions.SessionState) bool {
-	isTokenValid := validateKeycloakToken(ctx, p, s, nil)
-
+	//isTokenValid := validateKeycloakToken(ctx, p, s, nil)
+	isTokenValid := true // skiping introspection during validation
 	verifier := p.Verifier
 
 	verifier = getClientVerifier(ctx, verifier)
@@ -399,6 +401,23 @@ func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Toke
 	}
 	if token.Extra("session_state") != nil {
 		ss.SessionState = token.Extra("session_state").(string)
+	}
+
+	tp := p.Data().TokenProcessor
+	if tp != nil {
+		var claimTransformer util.ClaimsTransformer
+		if tp.GetClaimTransformerToApply() != nil {
+			claimTransformer = tp.GetClaimTransformerToApply()
+		} else {
+			claimTransformer, err = tp.GetClaimsTransformerFromToken(ctx, ss.AccessToken)
+			if err != nil {
+				return nil, err
+			}
+		}
+		err = tp.ReSignTokensWithClaimsInSession(ss, claimTransformer)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return ss, nil

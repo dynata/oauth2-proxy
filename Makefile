@@ -14,7 +14,7 @@ MINIMUM_SUPPORTED_GO_MAJOR_VERSION = 1
 MINIMUM_SUPPORTED_GO_MINOR_VERSION = 15
 GO_VERSION_VALIDATION_ERR_MSG = Golang version is not supported, please update to at least $(MINIMUM_SUPPORTED_GO_MAJOR_VERSION).$(MINIMUM_SUPPORTED_GO_MINOR_VERSION)
 
-DOCKER_BUILD := docker build --build-arg VERSION=${VERSION}
+DOCKER_BUILD := docker build --build-arg VERSION=${VERSION} --build-arg GITHUB_TOKEN=${GITHUB_TOKEN}
 
 ifeq ($(COVER),true)
 TESTCOVER ?= -coverprofile c.out
@@ -40,6 +40,10 @@ distclean: clean
 lint: validate-go-version
 	GO111MODULE=on $(GOLANGCILINT) run
 
+.PHONY: generate-keycloak-secrets
+generate-keycloak-secrets:
+	./configLocalKeycloakKeys.sh
+
 .PHONY: build
 build: validate-go-version clean $(BINARY)
 
@@ -62,6 +66,7 @@ docker-debug:
 
 .PHONY: docker-all
 docker-all: docker
+	$(DOCKER_BUILD) -f Dockerfile.debug -t $(REGISTRY)/oauth2-proxy:debug .
 	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:latest-amd64 .
 	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:${VERSION} .
 	$(DOCKER_BUILD) -f Dockerfile -t $(REGISTRY)/oauth2-proxy:${VERSION}-amd64 .

@@ -32,20 +32,6 @@ services:
       oauth2-proxy: {}
     depends_on:
       - oauth2-proxy
-  upstream-app:
-    container_name: upstream-app
-    image: php:7.2-apache
-    hostname: upstream-app
-    ports:
-      - 8000:80/tcp
-    volumes:
-      - "./upstream:/var/www/html"
-    networks:
-      oauth2-proxy:
-        aliases:
-          - upstream-app.localhost
-    depends_on:
-      - oauth2-proxy
   oauth2-proxy:
     container_name: oauth2-proxy
     image: quay.io/oauth2-proxy/oauth2-proxy:debug
@@ -54,11 +40,19 @@ services:
       - apparmor=unconfined
     cap_add: 
       - SYS_PTRACE
-    entrypoint: ['/bin/dlv', '--listen=:41800', '--headless=true', '--accept-multiclient', '--api-version=2', 'exec', '/bin/oauth2-proxy', '--continue', '--']
-    command: --config /oauth2-proxy.cfg
+    # entrypoint: ['/bin/dlv', '--listen=:41800', '--headless=true', '--accept-multiclient', '--api-version=2', 'exec', '/bin/oauth2-proxy', '--continue', '--']
+    # command: --config /oauth2-proxy.cfg
     hostname: oauth2-proxy
     volumes:
       - "./oauth2-proxy-pe-env-nginx-keycloak-folio3.cfg:/oauth2-proxy.cfg"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT}
+      - DATABASE_HOST=${DATABASE_HOST}
+      - DATABASE_PORT=${DATABASE_PORT}
+      - DATABASE_USERNAME=${DATABASE_USERNAME}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - KC_HMAC_SECRET_KEY_HEX=${KC_HMAC_SECRET_KEY_HEX}
+      - KC_PRIVATE_KEY=${KC_PRIVATE_KEY}
     restart: unless-stopped
     networks:
       oauth2-proxy:
