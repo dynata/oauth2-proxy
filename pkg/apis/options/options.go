@@ -19,15 +19,16 @@ type SignatureData struct {
 // Options holds Configuration Options that can be set by Command Line Flag,
 // or Config File
 type Options struct {
-	ProxyPrefix        string   `flag:"proxy-prefix" cfg:"proxy_prefix"`
-	PingPath           string   `flag:"ping-path" cfg:"ping_path"`
-	PingUserAgent      string   `flag:"ping-user-agent" cfg:"ping_user_agent"`
-	ReverseProxy       bool     `flag:"reverse-proxy" cfg:"reverse_proxy"`
-	RealClientIPHeader string   `flag:"real-client-ip-header" cfg:"real_client_ip_header"`
-	TrustedIPs         []string `flag:"trusted-ip" cfg:"trusted_ips"`
-	ForceHTTPS         bool     `flag:"force-https" cfg:"force_https"`
-	RawRedirectURL     string   `flag:"redirect-url" cfg:"redirect_url"`
-	RawAppRedirectURL  string   `flag:"default-app-redirect-url" cfg:"default_app_redirect_url"`
+	ProxyPrefix           string   `flag:"proxy-prefix" cfg:"proxy_prefix"`
+	PingPath              string   `flag:"ping-path" cfg:"ping_path"`
+	PingUserAgent         string   `flag:"ping-user-agent" cfg:"ping_user_agent"`
+	ReverseProxy          bool     `flag:"reverse-proxy" cfg:"reverse_proxy"`
+	RealClientIPHeader    string   `flag:"real-client-ip-header" cfg:"real_client_ip_header"`
+	TrustedIPs            []string `flag:"trusted-ip" cfg:"trusted_ips"`
+	ForceHTTPS            bool     `flag:"force-https" cfg:"force_https"`
+	RawRedirectURL        string   `flag:"redirect-url" cfg:"redirect_url"`
+	RawRedirectLibraryURL string   `flag:"redirectv2-url" cfg:"redirect_library_url"`
+	RawAppRedirectURL     string   `flag:"default-app-redirect-url" cfg:"default_app_redirect_url"`
 
 	AuthenticatedEmailsFile string   `flag:"authenticated-emails-file" cfg:"authenticated_emails_file"`
 	EmailDomains            []string `flag:"email-domain" cfg:"email_domains"`
@@ -68,6 +69,7 @@ type Options struct {
 
 	// internal values that are set after config validation
 	redirectURL           *url.URL
+	redirectV2URL         *url.URL
 	defaultAppRedirectURL *url.URL
 	provider              providers.Provider
 	signatureData         *SignatureData
@@ -88,6 +90,7 @@ type Options struct {
 
 // Options for Getting internal values
 func (o *Options) GetRedirectURL() *url.URL               { return o.redirectURL }
+func (o *Options) GetLibRedirectURL() *url.URL            { return o.redirectV2URL }
 func (o *Options) GetDefaultAppRedirectURL() *url.URL     { return o.defaultAppRedirectURL }
 func (o *Options) GetProvider() providers.Provider        { return o.provider }
 func (o *Options) GetSignatureData() *SignatureData       { return o.signatureData }
@@ -101,6 +104,7 @@ func (o *Options) GetAllClientIDs() []string                       { return o.al
 
 // Options for Setting internal values
 func (o *Options) SetRedirectURL(s *url.URL)               { o.redirectURL = s }
+func (o *Options) SetRedirectLibraryURL(s *url.URL)        { o.redirectV2URL = s }
 func (o *Options) SetDefaultAppRedirectURL(s *url.URL)     { o.defaultAppRedirectURL = s }
 func (o *Options) SetProvider(s providers.Provider)        { o.provider = s }
 func (o *Options) SetSignatureData(s *SignatureData)       { o.signatureData = s }
@@ -137,6 +141,8 @@ func NewFlagSet() *pflag.FlagSet {
 	flagSet.StringSlice("trusted-ip", []string{}, "list of IPs or CIDR ranges to allow to bypass authentication. WARNING: trusting by IP has inherent security flaws, read the configuration documentation for more information.")
 	flagSet.Bool("force-https", false, "force HTTPS redirect for HTTP requests")
 	flagSet.String("redirect-url", "", "the OAuth Redirect URL. ie: \"https://internalapp.yourcompany.com/oauth2/callback\"")
+	flagSet.String("redirectv2-url", "", "the OAuth Redirect URL. ie: \"https://internalapp.yourcompany.com/oauth2/callback\\libredirect\"")
+
 	flagSet.String("default-app-redirect-url", "", "the default application Redirect URL. ie: \"https://yourservice.domain.com\"")
 	flagSet.StringSlice("skip-auth-regex", []string{}, "(DEPRECATED for --skip-auth-route) bypass authentication for requests path's that match (may be given multiple times)")
 	flagSet.StringSlice("skip-auth-route", []string{}, "bypass authentication for requests that match the method & path. Format: method=path_regex OR path_regex alone for all methods")

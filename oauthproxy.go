@@ -87,20 +87,22 @@ type OAuthProxy struct {
 	CookieOptions *options.Cookie
 	Validator     func(string) bool
 
-	RobotsPath           string
-	SignInPath           string
-	SignOutPath          string
-	OAuthStartPath       string
-	OAuthCallbackPath    string
-	OAuthCallbackLibPath string
-	AuthOnlyPath         string
-	UserInfoPath         string
-	CheckSessionPath     string
-	SilentAuthPath       string
-	SwitchCompanyPath    string
+	RobotsPath                   string
+	SignInPath                   string
+	SignOutPath                  string
+	OAuthStartPath               string
+	OAuthCallbackPath            string
+	OAuthCallbackLibRedirectPath string
+	OAuthCallbackLibPath         string
+	AuthOnlyPath                 string
+	UserInfoPath                 string
+	CheckSessionPath             string
+	SilentAuthPath               string
+	SwitchCompanyPath            string
 
 	allowedRoutes         []allowedRoute
 	redirectURL           *url.URL // the url to receive requests at
+	RedirectLibraryURL    *url.URL // the url to receive requests at
 	defaultAppRedirectURL *url.URL
 	whitelistDomains      []string
 	provider              providers.Provider
@@ -202,6 +204,10 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	if redirectURL.Path == "" {
 		redirectURL.Path = fmt.Sprintf("%s/callback", opts.ProxyPrefix)
 	}
+	RedirectLibraryURL := opts.GetLibRedirectURL()
+	if RedirectLibraryURL.Path == "" {
+		RedirectLibraryURL.Path = fmt.Sprintf("%s/callback/lib_redirect", opts.ProxyPrefix)
+	}
 
 	defaultAppRedirectURL := opts.GetDefaultAppRedirectURL()
 
@@ -273,23 +279,25 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		CookieOptions: &opts.Cookie,
 		Validator:     validator,
 
-		RobotsPath:           "/robots.txt",
-		SignInPath:           fmt.Sprintf("%s/sign_in", opts.ProxyPrefix),
-		SignOutPath:          fmt.Sprintf("%s/sign_out", opts.ProxyPrefix),
-		OAuthStartPath:       fmt.Sprintf("%s/start", opts.ProxyPrefix),
-		OAuthCallbackPath:    fmt.Sprintf("%s/callback", opts.ProxyPrefix),
-		OAuthCallbackLibPath: fmt.Sprintf("%s/callback/lib", opts.ProxyPrefix),
-		AuthOnlyPath:         fmt.Sprintf("%s/auth", opts.ProxyPrefix),
-		UserInfoPath:         fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
-		CheckSessionPath:     fmt.Sprintf("%s/lib/check_session", opts.ProxyPrefix),
-		SilentAuthPath:       fmt.Sprintf("%s/lib/silent", opts.ProxyPrefix),
-		SwitchCompanyPath:    fmt.Sprintf("%s/switchcompany", opts.ProxyPrefix),
+		RobotsPath:                   "/robots.txt",
+		SignInPath:                   fmt.Sprintf("%s/sign_in", opts.ProxyPrefix),
+		SignOutPath:                  fmt.Sprintf("%s/sign_out", opts.ProxyPrefix),
+		OAuthStartPath:               fmt.Sprintf("%s/start", opts.ProxyPrefix),
+		OAuthCallbackPath:            fmt.Sprintf("%s/callback", opts.ProxyPrefix),
+		OAuthCallbackLibPath:         fmt.Sprintf("%s/callback/lib", opts.ProxyPrefix),
+		AuthOnlyPath:                 fmt.Sprintf("%s/auth", opts.ProxyPrefix),
+		UserInfoPath:                 fmt.Sprintf("%s/userinfo", opts.ProxyPrefix),
+		CheckSessionPath:             fmt.Sprintf("%s/lib/check_session", opts.ProxyPrefix),
+		SilentAuthPath:               fmt.Sprintf("%s/lib/silent", opts.ProxyPrefix),
+		SwitchCompanyPath:            fmt.Sprintf("%s/switchcompany", opts.ProxyPrefix),
+		OAuthCallbackLibRedirectPath: fmt.Sprintf("%s/callback/lib_redirect", opts.ProxyPrefix),
 
 		ProxyPrefix:           opts.ProxyPrefix,
 		provider:              provider,
 		sessionStore:          sessionStore,
 		serveMux:              upstreamProxy,
 		redirectURL:           redirectURL,
+		RedirectLibraryURL:    RedirectLibraryURL,
 		defaultAppRedirectURL: defaultAppRedirectURL,
 		allowedRoutes:         allowedRoutes,
 		whitelistDomains:      opts.WhitelistDomains,
@@ -616,7 +624,7 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 		return true
 	case path == p.provider.Data().JwksURL.Path:
 		return true
-	case (path == p.provider.Data().LoginURL.Path || path == p.provider.Data().LoginURL.Path+"/lib") &&
+	case (path == p.provider.Data().LoginURL.Path || path == p.provider.Data().LoginURL.Path+"/lib" || path == p.provider.Data().LoginURL.Path+"/lib_redirect") &&
 		req.URL.Query().Get("response_type") == "code": // Authorization Endpoint
 		return true
 	case path == p.provider.Data().RedeemURL.Path &&
@@ -696,6 +704,12 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 			http.Redirect(rw, req, appRedirect, http.StatusFound)
 		}
 		p.OAuthCallback(rw, req, p.OAuthCallbackPath, appRedirectHandler)
+	case path == p.OAuthCallbackLibRedirectPath:
+		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+			var appRedirect string = params[0].(string)
+			http.Redirect(rw, req, appRedirect, http.StatusFound)
+		}
+		p.OAuthLibRedirectCallback(rw, req, p.OAuthCallbackPath, appRedirectHandler)
 	case path == p.OAuthCallbackLibPath:
 		var appRedirectHandler appRedirectHandlerFunc = func(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
 			var appRedirect string = params[0].(string)
@@ -754,6 +768,8 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.UserInfo(rw, req)
 	case path == p.provider.Data().LoginURL.Path && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
 		p.MockLoginRequest(rw, req, false)
+	case path == p.provider.Data().LoginURL.Path+"/lib_redirect" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
+		p.MockLoginRequestForLibRedirect(rw, req, false)
 	case path == p.provider.Data().LoginURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint, Used in library
 		p.MockLoginRequest(rw, req, true)
 	case path == p.provider.Data().RedeemURL.Path && p.isOauth2ProxySupportedRequest(req): // Token Endpoint
@@ -900,6 +916,26 @@ func (p *OAuthProxy) MockLoginRequest(rw http.ResponseWriter, req *http.Request,
 	}
 	req = p.modifyRequestForMockLoginAPI(p.provider.Data(), req)
 	p.OAuthStart(rw, req, isLibCall)
+}
+func (p *OAuthProxy) MockLoginRequestForLibRedirect(rw http.ResponseWriter, req *http.Request, isLibCall bool) {
+	reqClientId := req.FormValue("client_id")
+	reqRedirect := req.FormValue("redirect_uri")
+
+	if !p.isValidClientId(reqClientId) {
+		err := fmt.Sprintf("Error validating client_id %v", reqClientId)
+		logger.Error(err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err)
+		return
+	}
+
+	if !p.IsValidRedirect(reqRedirect) {
+		err := fmt.Sprintf("Error validating redirect_uri %v", reqRedirect)
+		logger.Error(err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err)
+		return
+	}
+	req = p.modifyRequestForMockLoginAPI(p.provider.Data(), req)
+	p.OAuthStartV2(rw, req, isLibCall)
 }
 
 // Mock Token API
@@ -1733,6 +1769,69 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request, param
 	http.Redirect(rw, req, loginURL, http.StatusFound)
 }
 
+// OAuthStart starts the OAuth2 authentication flow for Library Redirect
+func (p *OAuthProxy) OAuthStartV2(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+	prepareNoCache(rw)
+
+	csrf, err := cookies.NewCSRF(p.CookieOptions)
+	if err != nil {
+		logger.Errorf("Error creating CSRF nonce: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	appRedirect, err := p.getAppRedirect(req)
+	if err != nil {
+		logger.Errorf("Error obtaining application redirect: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	clientId, err := p.getClientID(req)
+	if err != nil {
+		logger.Printf("Error obtaining client ID from request: %v", err)
+		logger.Printf("Setting default client ID")
+		clientId = p.provider.Data().ClientID
+	}
+
+	clientIdBytes := []byte(clientId)
+
+	// Hashing the clientIdBytes with the default cost of 10
+	hashedClientIdBytes, err := bcrypt.GenerateFromPassword(clientIdBytes, bcrypt.DefaultCost)
+	if err != nil {
+		logger.Errorf("Error processing client id: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	callbackRedirect := p.getOAuthRedirectURI(req, true)
+
+	isLibCall := false
+	if len(params) >= 1 {
+		isLibCall = params[0].(bool)
+	}
+
+	query := req.URL.Query()
+	query.Add("isLibCall", strconv.FormatBool(isLibCall))
+	ctx := req.Context()
+	newCtx := context.WithValue(ctx, constants.ContextOidcLoginRequestParams{}, query)
+
+	loginURL := p.provider.GetLoginURL(
+		newCtx,
+		callbackRedirect,
+		encodeState(csrf.HashOAuthState(), appRedirect, string(hashedClientIdBytes)),
+		csrf.HashOIDCNonce(),
+	)
+
+	if _, err := csrf.SetCookie(rw, req); err != nil {
+		logger.Errorf("Error setting CSRF cookie: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	http.Redirect(rw, req, loginURL, http.StatusFound)
+}
+
 // OAuthCallback is the OAuth2 authentication flow callback that finishes the
 // OAuth2 authentication flow
 func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
@@ -1863,6 +1962,135 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request, pa
 	}
 }
 
+// OAuthLibRedirectCallback is the OAuth2 authentication flow callback that finishes the
+// OAuth2 authentication flow for Library redirect
+func (p *OAuthProxy) OAuthLibRedirectCallback(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
+	remoteAddr := ip.GetClientString(p.realClientIPParser, req, true)
+
+	// finish the oauth cycle
+	err := req.ParseForm()
+	if err != nil {
+		logger.Errorf("Error while parsing OAuth2 callback: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+	errorString := req.Form.Get("error")
+	if errorString != "" {
+		logger.Errorf("Error while parsing OAuth2 callback: %s", errorString)
+		message := fmt.Sprintf("Login Failed: The upstream identity provider returned an error: %s", errorString)
+		// Set the debug message and override the non debug message to be the same for this case
+		p.ErrorPage(rw, req, http.StatusForbidden, message, message)
+		return
+	}
+
+	nonce, appRedirect, hashedClientId, decodeErr := decodeState(req)
+
+	if !p.setRequestedClientConfigToRequestScope(req, hashedClientId) {
+		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if len(params) >= 1 {
+		redirectURI := params[0].(string)
+		if redirectURI == p.OAuthCallbackLibPath {
+			callbackRedirect := p.getOAuthRedirectURI(req)
+			req.Header.Set(constants.RedirectLibHeader, callbackRedirect+"/lib")
+		}
+	}
+
+	session, err := p.redeemCode(req, true)
+	if err != nil {
+		logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	err = p.enrichSessionState(req.Context(), session)
+	if err != nil {
+		logger.Errorf("Error creating session during OAuth2 callback: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	csrf, err := cookies.LoadCSRFCookie(req, p.CookieOptions)
+	if err != nil {
+		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: unable to obtain CSRF cookie")
+		p.ErrorPage(rw, req, http.StatusForbidden, err.Error(), "Login Failed: Unable to find a valid CSRF token. Please try again.")
+		return
+	}
+
+	csrf.ClearCookie(rw, req)
+
+	if decodeErr != nil {
+		logger.Errorf("Error while parsing OAuth2 state: %v", err)
+		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if !csrf.CheckOAuthState(nonce) {
+		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: CSRF token mismatch, potential attack")
+		p.ErrorPage(rw, req, http.StatusForbidden, "CSRF token mismatch, potential attack", "Login Failed: Unable to find a valid CSRF token. Please try again.")
+		return
+	}
+
+	csrf.SetSessionNonce(session)
+	p.provider.ValidateSession(req.Context(), session)
+
+	if !p.IsValidRedirect(appRedirect) {
+		appRedirect = p.defaultAppRedirectURL.String()
+	}
+
+	// set cookie, or deny
+	authorized, err := p.provider.Authorize(req.Context(), session)
+	if err != nil {
+		logger.Errorf("Error with authorization: %v", err)
+	}
+
+	if hashedClientId != "" {
+		clientId, err := p.getClientIdFromSecureHashedClient(hashedClientId, req)
+		if err != nil {
+			logger.Errorf("Error redeeming code during OAuth2 callback: %v", err)
+			p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+			return
+		}
+		applied_client_id_ctx := context.WithValue(req.Context(), constants.ContextAppliedClientId{}, clientId)
+		req = req.Clone(applied_client_id_ctx)
+	}
+
+	if p.Validator(session.Email) && authorized {
+		logger.PrintAuthf(session.Email, req, logger.AuthSuccess, "Authenticated via OAuth2: %s", session)
+		ticketID, err := p.SaveSession(rw, req, session)
+		if err != nil {
+			logger.Errorf("Error saving session state for %s: %v", remoteAddr, err)
+			p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if ticketID != "" {
+			req, err := http.NewRequest("GET", appRedirect, nil)
+			if err != nil {
+				logger.Errorf("Error appending code to app redirect URL: %v", err)
+				p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+			}
+			q := req.URL.Query()
+			q.Add("code", ticketID)
+			if session.SessionState != "" {
+				q.Add("session_state", session.SessionState)
+			}
+			req.URL.RawQuery = q.Encode()
+			appRedirect = req.URL.String()
+		}
+
+		if len(params) >= 2 {
+			var appRedirectHandler appRedirectHandlerFunc = params[1].(appRedirectHandlerFunc)
+			appRedirectHandler(rw, req, appRedirect, session)
+		}
+
+	} else {
+		logger.PrintAuthf(session.Email, req, logger.AuthFailure, "Invalid authentication via OAuth2: unauthorized")
+		p.ErrorPage(rw, req, http.StatusForbidden, "Invalid session: unauthorized")
+	}
+}
 func (p *OAuthProxy) setRequestedClientConfigToRequestScope(req *http.Request, hashedClientId string) bool {
 	var clients []map[string]string
 	var clientId string
@@ -1914,13 +2142,19 @@ func (p *OAuthProxy) getSessionChain() alice.Chain {
 	return p.sessionChain
 }
 
-func (p *OAuthProxy) redeemCode(req *http.Request) (*sessionsapi.SessionState, error) {
+func (p *OAuthProxy) redeemCode(req *http.Request, params ...interface{}) (*sessionsapi.SessionState, error) {
 	code := req.Form.Get("code")
 	if code == "" {
 		return nil, providers.ErrMissingCode
 	}
-
 	redirectURI := p.getOAuthRedirectURI(req)
+	if len(params) > 0 {
+		isLibRedirectRequest := params[0].(bool)
+		if isLibRedirectRequest {
+			redirectURI = p.getOAuthRedirectURI(req, true)
+		}
+	}
+
 	// Case added to support library callback
 	if req.Header.Get(constants.RedirectLibHeader) != "" &&
 		req.Header.Get(constants.RedirectLibHeader) != redirectURI {
@@ -2032,8 +2266,19 @@ func prepareNoCache(w http.ResponseWriter) {
 // getOAuthRedirectURI returns the redirectURL that the upstream OAuth Provider will
 // redirect clients to once authenticated.
 // This is usually the OAuthProxy callback URL.
-func (p *OAuthProxy) getOAuthRedirectURI(req *http.Request) string {
+func (p *OAuthProxy) getOAuthRedirectURI(req *http.Request, params ...interface{}) string {
 	// if `p.redirectURL` already has a host, return it
+	if len(params) > 0 {
+		isLibRedirectRequest := params[0].(bool)
+		if isLibRedirectRequest {
+
+			if p.RedirectLibraryURL.Host != "" {
+				return p.RedirectLibraryURL.String()
+			}
+
+		}
+	}
+
 	if p.redirectURL.Host != "" {
 		return p.redirectURL.String()
 	}
