@@ -196,9 +196,9 @@ func Validate(o *options.Options) error {
 	var redirectURL *url.URL
 	redirectURL, msgs = parseURL(o.RawRedirectURL, "redirect", msgs)
 	o.SetRedirectURL(redirectURL)
-	var redirectV2URL *url.URL
-	redirectV2URL, msgs = parseURL(o.RawRedirectV2URL, "redirect", msgs)
-	o.SetRedirectV2URL(redirectV2URL)
+	var RawRedirectLibraryURL *url.URL
+	RawRedirectLibraryURL, msgs = parseURL(o.RawRedirectLibraryURL, "redirect", msgs)
+	o.SetRedirectLibraryURL(RawRedirectLibraryURL)
 	if o.RawRedirectURL == "" && !o.Cookie.Secure && !o.ReverseProxy {
 		logger.Print("WARNING: no explicit redirect URL: redirects will default to insecure HTTP")
 	}

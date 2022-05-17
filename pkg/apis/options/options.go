@@ -19,16 +19,16 @@ type SignatureData struct {
 // Options holds Configuration Options that can be set by Command Line Flag,
 // or Config File
 type Options struct {
-	ProxyPrefix        string   `flag:"proxy-prefix" cfg:"proxy_prefix"`
-	PingPath           string   `flag:"ping-path" cfg:"ping_path"`
-	PingUserAgent      string   `flag:"ping-user-agent" cfg:"ping_user_agent"`
-	ReverseProxy       bool     `flag:"reverse-proxy" cfg:"reverse_proxy"`
-	RealClientIPHeader string   `flag:"real-client-ip-header" cfg:"real_client_ip_header"`
-	TrustedIPs         []string `flag:"trusted-ip" cfg:"trusted_ips"`
-	ForceHTTPS         bool     `flag:"force-https" cfg:"force_https"`
-	RawRedirectURL     string   `flag:"redirect-url" cfg:"redirect_url"`
-	RawRedirectV2URL   string   `flag:"redirectv2-url" cfg:"redirectV2_url"`
-	RawAppRedirectURL  string   `flag:"default-app-redirect-url" cfg:"default_app_redirect_url"`
+	ProxyPrefix           string   `flag:"proxy-prefix" cfg:"proxy_prefix"`
+	PingPath              string   `flag:"ping-path" cfg:"ping_path"`
+	PingUserAgent         string   `flag:"ping-user-agent" cfg:"ping_user_agent"`
+	ReverseProxy          bool     `flag:"reverse-proxy" cfg:"reverse_proxy"`
+	RealClientIPHeader    string   `flag:"real-client-ip-header" cfg:"real_client_ip_header"`
+	TrustedIPs            []string `flag:"trusted-ip" cfg:"trusted_ips"`
+	ForceHTTPS            bool     `flag:"force-https" cfg:"force_https"`
+	RawRedirectURL        string   `flag:"redirect-url" cfg:"redirect_url"`
+	RawRedirectLibraryURL string   `flag:"redirectv2-url" cfg:"redirect_library_url"`
+	RawAppRedirectURL     string   `flag:"default-app-redirect-url" cfg:"default_app_redirect_url"`
 
 	AuthenticatedEmailsFile string   `flag:"authenticated-emails-file" cfg:"authenticated_emails_file"`
 	EmailDomains            []string `flag:"email-domain" cfg:"email_domains"`
@@ -96,7 +96,7 @@ func (o *Options) GetAllClientIDs() []string                       { return o.al
 
 // Options for Setting internal values
 func (o *Options) SetRedirectURL(s *url.URL)               { o.redirectURL = s }
-func (o *Options) SetRedirectV2URL(s *url.URL)             { o.redirectV2URL = s }
+func (o *Options) SetRedirectLibraryURL(s *url.URL)        { o.redirectV2URL = s }
 func (o *Options) SetDefaultAppRedirectURL(s *url.URL)     { o.defaultAppRedirectURL = s }
 func (o *Options) SetProvider(s providers.Provider)        { o.provider = s }
 func (o *Options) SetSignatureData(s *SignatureData)       { o.signatureData = s }

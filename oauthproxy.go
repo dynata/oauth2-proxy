@@ -86,7 +86,7 @@ type OAuthProxy struct {
 
 	allowedRoutes         []allowedRoute
 	redirectURL           *url.URL // the url to receive requests at
-	redirectURLV2         *url.URL // the url to receive requests at
+	RedirectLibraryURL    *url.URL // the url to receive requests at
 	defaultAppRedirectURL *url.URL
 	whitelistDomains      []string
 	provider              providers.Provider
@@ -167,9 +167,9 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 	if redirectURL.Path == "" {
 		redirectURL.Path = fmt.Sprintf("%s/callback", opts.ProxyPrefix)
 	}
-	RedirectURLV2 := opts.GetLibRedirectURL()
-	if RedirectURLV2.Path == "" {
-		RedirectURLV2.Path = fmt.Sprintf("%s/callback/libredirect", opts.ProxyPrefix)
+	RedirectLibraryURL := opts.GetLibRedirectURL()
+	if RedirectLibraryURL.Path == "" {
+		RedirectLibraryURL.Path = fmt.Sprintf("%s/callback/lib_redirect", opts.ProxyPrefix)
 	}
 
 	defaultAppRedirectURL := opts.GetDefaultAppRedirectURL()
@@ -235,7 +235,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		sessionStore:          sessionStore,
 		serveMux:              upstreamProxy,
 		redirectURL:           redirectURL,
-		redirectURLV2:         RedirectURLV2,
+		RedirectLibraryURL:    RedirectLibraryURL,
 		defaultAppRedirectURL: defaultAppRedirectURL,
 		allowedRoutes:         allowedRoutes,
 		whitelistDomains:      opts.WhitelistDomains,
@@ -560,7 +560,7 @@ func (p *OAuthProxy) isOauth2ProxySupportedRequest(req *http.Request) bool {
 		return true
 	case path == p.provider.Data().JwksURL.Path:
 		return true
-	case (path == p.provider.Data().LoginURL.Path || path == p.provider.Data().LoginURL.Path+"/lib" || path == p.provider.Data().LoginURL.Path+"/libRedirect") &&
+	case (path == p.provider.Data().LoginURL.Path || path == p.provider.Data().LoginURL.Path+"/lib" || path == p.provider.Data().LoginURL.Path+"/lib_redirect") &&
 		req.URL.Query().Get("response_type") == "code": // Authorization Endpoint
 		return true
 	case path == p.provider.Data().RedeemURL.Path &&
@@ -1715,7 +1715,7 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request, param
 	http.Redirect(rw, req, loginURL, http.StatusFound)
 }
 
-// OAuthStart starts the OAuth2 authentication flow
+// OAuthStart starts the OAuth2 authentication flow for Library Redirect
 func (p *OAuthProxy) OAuthStartV2(rw http.ResponseWriter, req *http.Request, params ...interface{}) {
 	prepareNoCache(rw)
 
@@ -2218,8 +2218,8 @@ func (p *OAuthProxy) getOAuthRedirectURI(req *http.Request, params ...interface{
 		isLibRedirectRequest := params[0].(bool)
 		if isLibRedirectRequest {
 
-			if p.redirectURLV2.Host != "" {
-				return p.redirectURLV2.String()
+			if p.RedirectLibraryURL.Host != "" {
+				return p.RedirectLibraryURL.String()
 			}
 
 		}
