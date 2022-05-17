@@ -228,7 +228,7 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		CheckSessionPath:             fmt.Sprintf("%s/lib/check_session", opts.ProxyPrefix),
 		SilentAuthPath:               fmt.Sprintf("%s/lib/silent", opts.ProxyPrefix),
 		SwitchCompanyPath:            fmt.Sprintf("%s/switchcompany", opts.ProxyPrefix),
-		OAuthCallbackLibRedirectPath: fmt.Sprintf("%s/callback/libredirect", opts.ProxyPrefix),
+		OAuthCallbackLibRedirectPath: fmt.Sprintf("%s/callback/lib_redirect", opts.ProxyPrefix),
 
 		ProxyPrefix:           opts.ProxyPrefix,
 		provider:              provider,
@@ -704,7 +704,7 @@ func (p *OAuthProxy) serveHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.UserInfo(rw, req)
 	case path == p.provider.Data().LoginURL.Path && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
 		p.MockLoginRequest(rw, req, false)
-	case path == p.provider.Data().LoginURL.Path+"/libRedirect" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
+	case path == p.provider.Data().LoginURL.Path+"/lib_redirect" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint
 		p.MockLoginRequestForLibRedirect(rw, req, false)
 	case path == p.provider.Data().LoginURL.Path+"/lib" && p.isOauth2ProxySupportedRequest(req): // Authorization Endpoint, Used in library
 		p.MockLoginRequest(rw, req, true)
