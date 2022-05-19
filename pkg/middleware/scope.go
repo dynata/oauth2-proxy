@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 
@@ -9,7 +8,6 @@ import (
 	"github.com/justinas/alice"
 	middlewareapi "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/middleware"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
-	requestutil "github.com/oauth2-proxy/oauth2-proxy/v7/pkg/requests/util"
 )
 
 type redirectValidatorFunc func(redirect string, defaultAppRedirectURL *url.URL, whitelistDomains []string) bool
@@ -44,15 +42,10 @@ func NewScopeUsingOptions(opts *options.Options) alice.Constructor {
 func SetupCORS(rvf redirectValidatorFunc, defaultAppRedirectURL *url.URL, whitelistDomains []string) alice.Constructor {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			scheme := requestutil.GetRequestProto(req)
-			host := requestutil.GetRequestHost(req)
-			if scheme == "" {
-				scheme = requestutil.GetRequestInferedProto(req)
-			}
-			urlHost := fmt.Sprintf("%s://%s", scheme, host)
-			isRequestURLValid := rvf(urlHost, defaultAppRedirectURL, whitelistDomains)
+			origin := req.Header.Get("Origin")
+			isRequestURLValid := rvf(origin, defaultAppRedirectURL, whitelistDomains)
 			if isRequestURLValid {
-				rw.Header().Set("Access-Control-Allow-Origin", urlHost)
+				rw.Header().Set("Access-Control-Allow-Origin", origin)
 				rw.Header().Set("Access-Control-Allow-Headers", "*")
 				rw.Header().Set("Access-Control-Allow-Credentials", "true")
 				rw.Header().Set("Vary", "Origin")
