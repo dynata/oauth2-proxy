@@ -227,6 +227,7 @@ func Validate(o *options.Options) error {
 
 	o.KCHmacSecretKeyHex = os.Getenv("KC_HMAC_SECRET_KEY_HEX")
 	o.KCPrivateKey = os.Getenv("KC_PRIVATE_KEY")
+	fmt.Println(o.KCPrivateKey)
 
 	msgs = append(msgs, validateUpstreams(o.UpstreamServers)...)
 	msgs = parseProviderInfo(o, msgs)
