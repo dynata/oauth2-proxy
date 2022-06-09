@@ -178,8 +178,8 @@ func NewFlagSet() *pflag.FlagSet {
 
 	flagSet.String("corpus-server-address", "", "Corpus server address")
 
-	flagSet.String("keycloak-hmac-secret-hex-key-path", "./kc.hmac.secret.hex", "secret hex key file path to resign tokens")
-	flagSet.String("keycloak-private-key-path", "./kc.local.private.pem", "private key file path to resign tokens")
+	flagSet.String("keycloak-hmac-secret-hex-key-path", "", "secret hex key file path to resign tokens")
+	flagSet.String("keycloak-private-key-path", "", "private key file path to resign tokens")
 
 	flagSet.AddFlagSet(cookieFlagSet())
 	flagSet.AddFlagSet(loggingFlagSet())

@@ -49,7 +49,8 @@ else
     echo "" > $dotEnvDestFile
     if [ -f "$dotEnvDestFile" ]
     then
-        echo "wirting  to $dotEnvDestFile file"
+        # saving to .env file for use in docker-compose.yml
+        echo "wirting to $dotEnvDestFile file"
         echo "ENVIRONMENT='${ENV}'" > "$dotEnvDestFile"
         echo "KC_HMAC_SECRET_KEY_HEX='$kc_hmac_secret_hexed'" >> "$dotEnvDestFile"
         echo "KC_PRIVATE_KEY='$kc_rsa_private_Key'" >> "$dotEnvDestFile"

@@ -261,13 +261,13 @@ func NewOAuthProxy(opts *options.Options, validator func(string) bool) (*OAuthPr
 		if err != nil {
 			return nil, fmt.Errorf("could not create token builder from environment key variables: %v", err)
 		}
-	} else {
-		if len(opts.KCHmacSecretKeyHexPath) != 0 && len(opts.KCPrivateKeyPath) != 0 {
-			tokenProcessor, err = token.MakeTokenProcessor(opts.KCHmacSecretKeyHexPath, opts.KCPrivateKeyPath, corpusClient, provider.Data().JwksURL)
-			if err != nil {
-				return nil, fmt.Errorf("could not create token builder from key files: %v", err)
-			}
+	} else if len(opts.KCHmacSecretKeyHexPath) != 0 && len(opts.KCPrivateKeyPath) != 0 {
+		tokenProcessor, err = token.MakeTokenProcessor(opts.KCHmacSecretKeyHexPath, opts.KCPrivateKeyPath, corpusClient, provider.Data().JwksURL)
+		if err != nil {
+			return nil, fmt.Errorf("could not create token builder from key files: %v", err)
 		}
+	} else {
+		return nil, fmt.Errorf("must specify either KCHmacSecretKeyHex and KCPrivateKey or KCHmacSecretKeyHexPath and KCPrivateKeyPath")
 	}
 	if tokenProcessor == nil {
 		return nil, fmt.Errorf("could not create token builder: %v", err)

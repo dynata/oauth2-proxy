@@ -41,8 +41,8 @@ then
   /bin/dlv --listen=:41800 --headless=true --api-version=2 --accept-multiclient exec /bin/oauth2-proxy --continue -- --config=/oauth2-proxy.cfg
 else
   echo "executing non-local environment ($ENV) configuration"
-  cd /dynata/oauth2-proxy/contrib/$ENVIRONMENT/
+  cd /dynata/oauth2-proxy/contrib/$ENV/
   echo $ANSIBLE_SECRET > ansible-password.txt
   ansible-vault decrypt --vault-password-file ansible-password.txt oauth2-proxy-keycloak.cfg
-  /bin/oauth2-proxy --config=/dynata/oauth2-proxy/contrib/$ENVIRONMENT/oauth2-proxy-keycloak.cfg --silence-ping-logging
+  /bin/oauth2-proxy --config=/dynata/oauth2-proxy/contrib/$ENV/oauth2-proxy-keycloak.cfg --silence-ping-logging
 fi
