@@ -28,8 +28,9 @@ ARG VERSION
 RUN VERSION=${VERSION} make build && touch jwt_signing_key.pem
 
 # Copy binary to alpine
-FROM alpine:3.14
-RUN apk add ansible
+FROM ubuntu:20.04 AS ubuntu
+RUN apt update
+RUN apt install ansible -y
 RUN ansible all -m ping -u you 
 
 COPY nsswitch.conf /etc/nsswitch.conf

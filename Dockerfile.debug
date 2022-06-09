@@ -32,6 +32,10 @@ RUN VERSION=${VERSION} make build-debug && touch jwt_signing_key.pem
 
 # Copy binary to ubuntu
 FROM ubuntu:20.04 AS ubuntu
+RUN apt update
+RUN apt install ansible -y
+RUN ansible all -m ping -u you
+
 COPY nsswitch.conf /etc/nsswitch.conf
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /go/bin/dlv /bin/dlv
