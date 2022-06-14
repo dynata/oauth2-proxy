@@ -2499,15 +2499,15 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 	CompanyID := req.FormValue("CompanyID")
 	clientId := req.FormValue("client_id")
 	if clientId == "" {
-		rw.Write([]byte("client_id is required as query parameter or body parameter"))
 		rw.WriteHeader(http.StatusNotFound)
+		rw.Write([]byte("client_id is required as query parameter or body parameter"))
 		return
 	}
 
 	session, sessionErr := p.getAuthenticatedSession(rw, req)
 	if sessionErr != nil || session == nil {
+		rw.WriteHeader(http.StatusNotFound)
 		rw.Write([]byte("not authorized"))
-		rw.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
