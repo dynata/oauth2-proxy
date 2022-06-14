@@ -2497,9 +2497,16 @@ func (p *OAuthProxy) getClientIdFromSecureHashedClient(hashedClientId string, re
 func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 
 	CompanyID := req.FormValue("CompanyID")
+	clientId := req.FormValue("client_id")
+	if clientId == "" {
+		rw.WriteHeader(http.StatusNotFound)
+		rw.Write([]byte("client_id is required as query parameter or body parameter"))
+		return
+	}
 
 	session, sessionErr := p.getAuthenticatedSession(rw, req)
 	if sessionErr != nil || session == nil {
+		rw.WriteHeader(http.StatusNotFound)
 		rw.Write([]byte("not authorized"))
 		return
 	}
@@ -2508,7 +2515,7 @@ func (p *OAuthProxy) SwitchCompany(rw http.ResponseWriter, req *http.Request) {
 	claims, err := p.tokenProcessor.GetClaimsFromAccessToken(tokenString)
 	if err != nil {
 		logger.Errorf("Error fetching claims from token: %v", err)
-		p.ErrorPage(rw, req, http.StatusInternalServerError, err.Error())
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
