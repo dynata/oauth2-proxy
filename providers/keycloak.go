@@ -405,18 +405,31 @@ func (p *KeycloakProvider) createSession(ctx context.Context, token *oauth2.Toke
 
 	tp := p.Data().TokenProcessor
 	if tp != nil {
-		var claimTransformer util.ClaimsTransformer
-		if tp.GetClaimTransformerToApply() != nil {
-			claimTransformer = tp.GetClaimTransformerToApply()
+		claims, err := tp.GetClaimsFromAccessToken(ss.AccessToken)
+		if err != nil {
+			err = fmt.Errorf("error fetching claims from access token: %v", err)
+			return nil, err
+		}
+
+		userInfo, err := tp.GetUserBySubject(ctx, claims)
+		if userInfo == nil || err != nil {
+			err = fmt.Errorf("skipping resigning -> failed to fetch user by subject from corpus: %v", err)
+			fmt.Println(err)
+			// return nil, err
 		} else {
-			claimTransformer, err = tp.GetClaimsTransformerFromToken(ctx, ss.AccessToken)
+			var claimTransformer util.ClaimsTransformer
+			if tp.GetClaimTransformerToApply() != nil {
+				claimTransformer = tp.GetClaimTransformerToApply()
+			} else {
+				claimTransformer, err = tp.GetClaimsTransformerFromToken(ctx, claims, userInfo)
+				if err != nil {
+					return nil, err
+				}
+			}
+			err = tp.ReSignTokensWithClaimsInSession(ss, claimTransformer)
 			if err != nil {
 				return nil, err
 			}
-		}
-		err = tp.ReSignTokensWithClaimsInSession(ss, claimTransformer)
-		if err != nil {
-			return nil, err
 		}
 	}
 

@@ -376,27 +376,12 @@ func (t *TokenProcessor) CreateClaimsTransformer(ctx context.Context, compID int
 	return transformer, nil
 }
 
-func (t *TokenProcessor) GetClaimsTransformerFromToken(ctx context.Context, tokenString string) (util.ClaimsTransformer, error) {
+func (t *TokenProcessor) GetClaimsTransformerFromToken(ctx context.Context, claims jwtgo.MapClaims, userInfo *corpus.UserDetailResponse) (util.ClaimsTransformer, error) {
 	l := log.WithField("function", "GetClaimsTransformerFromToken()")
 
-	claims, err := t.GetClaimsFromAccessToken(tokenString)
-	if err != nil {
-		l.Printf("Error fetchng claim from access token: %v", err)
-		return nil, err
-	}
-	userInfoRequest := t.GetSubject(claims)
-	if userInfoRequest == nil {
-		l.Printf("Failed to create subject from claims")
-		return nil, err
-	}
-	userInfo, err := t.corpusClient.GetUserBySubject(ctx, userInfoRequest)
-	if userInfo == nil || err != nil {
-		l.Printf("Failed to fetch user by subject from corpus: %v", err)
-		return nil, err
-	}
 	primaryCompID, err := t.GetPrimaryCompID(userInfo)
 	if err != nil {
-		l.Printf("Error getting primary company: %v", err)
+		l.Printf("No primary company found: %v", err)
 		// return nil, err //since some user might not have any company set
 	}
 
@@ -407,4 +392,19 @@ func (t *TokenProcessor) GetClaimsTransformerFromToken(ctx context.Context, toke
 		return nil, err
 	}
 	return transformer, nil
+}
+
+func (t *TokenProcessor) GetUserBySubject(ctx context.Context, claims jwtgo.MapClaims) (*corpus.UserDetailResponse, error) {
+	l := log.WithField("function", "GetClaimsTransformerFromToken()")
+
+	userInfoRequest := t.GetSubject(claims)
+	if userInfoRequest == nil {
+		return nil, fmt.Errorf("failed to create subject from claims")
+	}
+	userInfo, err := t.corpusClient.GetUserBySubject(ctx, userInfoRequest)
+	if userInfo == nil || err != nil {
+		l.Printf("Failed to fetch user by subject from corpus: %v", err)
+		return nil, err
+	}
+	return userInfo, nil
 }
