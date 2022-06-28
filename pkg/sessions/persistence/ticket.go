@@ -98,7 +98,7 @@ func decodeUUIDTicket(decodedTicket string, loadUUIDTicket loadFunc, clearUUIDTi
 	ticketBytes, err := loadUUIDTicket(decodedTicket)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load the UUID ticket: %v", err)
 	}
 
 	ticketParts := strings.Split(string(ticketBytes), ".")

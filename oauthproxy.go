@@ -961,6 +961,18 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 			if req.FormValue("code") == "" {
 				rw.WriteHeader(http.StatusBadRequest)
 			} else {
+				isCustomCode := false
+				base64DecodedTicket, err2 := b64.RawURLEncoding.DecodeString(req.FormValue("code"))
+				if err2 != nil {
+					logger.Error(errors.New("error decoding code. incorrect format or KC code provided. skipping error"))
+					base64DecodedTicket = []byte{}
+				}
+				if strings.HasPrefix(string(base64DecodedTicket), "code|") {
+					isCustomCode = true
+				}
+				ctx := context.WithValue(req.Context(), constants.ContextIsCustomOauth2ProxyCode{}, isCustomCode)
+				req = req.Clone(ctx)
+
 				session, err := p.LoadCookiedSession(req)
 				if err != nil {
 					logger.Printf("Error loading oauth2 session: %v", err)
@@ -970,14 +982,13 @@ func (p *OAuthProxy) MockTokenRequest(rw http.ResponseWriter, req *http.Request)
 						rw.WriteHeader(http.StatusInternalServerError)
 						return
 					}
-					session, err = p.redeemCode(req)
-					if err != nil {
-						logger.Error("Failed to redeem code from provider --> ", err)
-						rw.WriteHeader(http.StatusUnauthorized)
-						return
-					}
-
 				}
+				if session == nil {
+					logger.Printf("session can not be created: session is nil")
+					rw.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+
 				tokenResponse := &authServerTokenResponse{
 					TokenType:             session.TokenType,
 					IDToken:               session.IDToken,

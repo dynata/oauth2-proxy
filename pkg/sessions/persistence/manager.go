@@ -49,7 +49,7 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 		}
 	}
 
-	ticket_uuid := uuid.NewString() + "." + uuid.NewString() + "." + uuid.NewString()
+	ticket_uuid := "code|" + uuid.NewString() + "." + uuid.NewString() + "." + uuid.NewString()
 
 	err = tckt.saveSession(req.Context(), s, ticket_uuid, func(key string, val []byte, exp time.Duration) error {
 		return m.Store.Save(req.Context(), key, val, exp)
@@ -65,6 +65,10 @@ func (m *Manager) Save(rw http.ResponseWriter, req *http.Request, s *sessions.Se
 // use the session ticket from the http.Request's cookie.
 func (m *Manager) Load(req *http.Request) (*sessions.SessionState, error) {
 	tckt, err := m.decodeMockOauthTokenRequest(req, m.Options)
+	isCustomCode := req.Context().Value(constants.ContextIsCustomOauth2ProxyCode{})
+	if err != nil && isCustomCode != nil && isCustomCode.(bool) {
+		return nil, err // skiping decode from cookie below because request is oauth2 proxy custom code exchange
+	}
 	if err != nil || tckt == nil {
 		// cookie will not be preset in barbican API request. So nil ticket will be returned
 		tckt, err = decodeTicketFromRequest(req, m.Options)
