@@ -7,7 +7,6 @@ type ContextIsMockOauthTokenRequestCall struct{}
 type ContextSkipIDTokenValidation struct{}
 type ContextAppliedClientId struct{}
 type ContextOidcLoginRequestParams struct{}
-type ContextIsCustomOauth2ProxyCode struct{}
 
 const (
 	RedirectLibHeader       = "X-Redirect-URI-Lib"
